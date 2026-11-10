@@ -1,0 +1,64 @@
+### Libra API - requests for VS Code "REST Client" / JetBrains HTTP Client
+@base = http://localhost:8000
+
+### Health
+GET {{base}}/health
+
+### Create member
+POST {{base}}/api/v1/members
+Content-Type: application/json
+
+{"full_name": "Lesya Ukrainka", "email": "lesya@example.com", "password": "lisova_pisnia", "max_active_loans": 3}
+
+### Create book
+POST {{base}}/api/v1/books
+Content-Type: application/json
+
+{"isbn": "978-1-4493-7332-0", "title": "Designing Data-Intensive Applications", "author": "Martin Kleppmann", "published_year": 2017, "total_copies": 2}
+
+### List / search books
+GET {{base}}/api/v1/books?q=data&available_only=true&limit=10&offset=0
+
+### Get book
+GET {{base}}/api/v1/books/1
+
+### Update book
+PATCH {{base}}/api/v1/books/1
+Content-Type: application/json
+
+{"total_copies": 3}
+
+### Login -> copy access_token into @token below
+# @name login
+POST {{base}}/api/v1/auth/login
+Content-Type: application/json
+
+{"email": "lesya@example.com", "password": "lisova_pisnia"}
+
+###
+@token = {{login.response.body.access_token}}
+
+### Who am I
+GET {{base}}/api/v1/me
+Authorization: Bearer {{token}}
+
+### Borrow a book
+POST {{base}}/api/v1/loans
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"book_id": 1, "days": 14}
+
+### My active loans
+GET {{base}}/api/v1/me/loans?active=true
+Authorization: Bearer {{token}}
+
+### Return a book
+POST {{base}}/api/v1/loans/1/return
+Authorization: Bearer {{token}}
+
+### High-load report
+GET {{base}}/api/v1/reports/popular-books?days=30&limit=10
+
+### Member loans (admin view)
+GET {{base}}/api/v1/members/1/loans

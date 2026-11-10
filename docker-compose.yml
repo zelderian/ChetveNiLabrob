@@ -1,0 +1,48 @@
+name: libra
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: libra
+      POSTGRES_USER: libra
+      POSTGRES_PASSWORD: libra
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U libra -d libra"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # One-shot job: applies DB migrations, then exits.
+  migrate:
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://libra:libra@db:5432/libra
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [backend]
+    restart: "no"
+
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://libra:libra@db:5432/libra
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "8000:8000"
+    networks: [backend]
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+
+networks:
+  backend:

@@ -1,0 +1,21 @@
+flowchart LR
+    client["👤 Client<br/>(Postman / curl / Swagger UI)"]
+
+    subgraph compose["docker-compose · network: backend"]
+        direction LR
+        subgraph app["Container: app (Python 3.12, FastAPI + Uvicorn) :8000"]
+            direction TB
+            routers["Routers (API layer)<br/>books · members · auth · loans · reports · health"]
+            services["Services (business logic)<br/>validation · loan rules · fines"]
+            orm["Persistence layer<br/>SQLAlchemy 2 ORM · connection pool"]
+            routers --> services --> orm
+        end
+        migrate["Container: migrate<br/>(one-shot: alembic upgrade head)"]
+        db[("Container: db<br/>PostgreSQL 16<br/>tables: members, books, loans")]
+        vol[["Volume: pgdata"]]
+    end
+
+    client -- "HTTP/1.1 REST · JSON<br/>localhost:8000" --> routers
+    orm -- "SQL over TCP :5432<br/>(psycopg 3)" --> db
+    migrate -- "DDL (migrations)" --> db
+    db --- vol

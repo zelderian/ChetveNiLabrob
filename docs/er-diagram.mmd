@@ -1,0 +1,31 @@
+erDiagram
+    MEMBERS ||--o{ LOANS : "borrows"
+    BOOKS   ||--o{ LOANS : "is lent in"
+
+    MEMBERS {
+        int id PK
+        varchar full_name
+        varchar email UK
+        varchar password_hash
+        int max_active_loans "1..10, default 3"
+        timestamptz created_at
+    }
+    BOOKS {
+        int id PK
+        varchar isbn UK
+        varchar title
+        varchar author "indexed"
+        int published_year
+        int total_copies
+        int available_copies "0..total_copies"
+        timestamptz created_at
+    }
+    LOANS {
+        int id PK
+        int member_id FK
+        int book_id FK
+        timestamptz borrowed_at "indexed"
+        timestamptz due_at
+        timestamptz returned_at "NULL = active"
+        numeric fine_amount
+    }

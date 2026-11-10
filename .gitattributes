@@ -1,0 +1,3 @@
+# Keep LF endings on Windows so files copied into Linux containers work.
+* text=auto eol=lf
+*.png binary
