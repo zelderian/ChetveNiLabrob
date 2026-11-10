@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.deps import bearer_token, current_member_id
 from app.schemas import LoginRequest, MemberOut, TokenOut
+from app.errors import Unauthorized
+from app.services import login_guard
 from app.services import members as member_svc
 from app.sessions import create_session, revoke_session
 
@@ -12,7 +14,13 @@ router = APIRouter(prefix="/api/v1", tags=["auth"])
 
 @router.post("/auth/login", response_model=TokenOut)
 def login(data: LoginRequest, db: Session = Depends(get_db)):
-    member = member_svc.authenticate(db, data.email, data.password)
+    login_guard.ensure_not_locked(data.email)
+    try:
+        member = member_svc.authenticate(db, data.email, data.password)
+    except Unauthorized:
+        login_guard.register_failure(data.email)
+        raise
+    login_guard.reset(data.email)
     token, expires_at = create_session(member.id)
     return TokenOut(access_token=token, expires_at=expires_at)
 

@@ -1,32 +1,39 @@
 """Reports - the High-Load scenario of the system.
 
-"Top-N popular books over the last D days" aggregates the whole `loans`
-table joined with `books` (GROUP BY + ORDER BY count). It is the most
-expensive read in the API.
+"Top-N popular books over the last D days" aggregates the `loans` table
+joined with `books` (GROUP BY + ORDER BY count) - the most expensive read.
 
-Lab 1 baseline: the result is cached in a process-local dict.
-NOTE: local cache - every instance has its own copy, copies diverge and are
-not invalidated by writes on other instances. Removed in Lab 2.
+Lab 2: the result is cached in Redis, shared by all instances.
+Cache keys embed a version number; every borrow/return INCRements the
+version, so all instances stop using stale entries at the same moment
+(old versions simply expire by TTL). If Redis is down the report is
+computed directly from the DB (graceful degradation).
 """
-import time
+import logging
 from datetime import datetime, timedelta, timezone
 
+import redis
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models import Book, Loan
+from app.redis_client import redis_client
 from app.schemas import PopularBook, PopularBooksReport
 
-_cache: dict[tuple[int, int], tuple[float, PopularBooksReport]] = {}
+log = logging.getLogger("libra.reports")
+
+VERSION_KEY = "report:popular:version"
 
 
-def popular_books(db: Session, days: int, limit: int) -> tuple[PopularBooksReport, bool]:
-    key = (days, limit)
-    hit = _cache.get(key)
-    if hit and hit[0] > time.time():
-        return hit[1], True
+def invalidate() -> None:
+    try:
+        redis_client.incr(VERSION_KEY)
+    except redis.RedisError:
+        log.warning("cannot invalidate report cache, entries will expire by TTL")
 
+
+def _query(db: Session, days: int, limit: int) -> PopularBooksReport:
     since = datetime.now(timezone.utc) - timedelta(days=days)
     loans_count = func.count(Loan.id).label("loans_count")
     rows = db.execute(
@@ -37,7 +44,7 @@ def popular_books(db: Session, days: int, limit: int) -> tuple[PopularBooksRepor
         .order_by(desc(loans_count), Book.id)
         .limit(limit)
     ).all()
-    report = PopularBooksReport(
+    return PopularBooksReport(
         period_days=days,
         generated_at=datetime.now(timezone.utc),
         items=[
@@ -45,5 +52,23 @@ def popular_books(db: Session, days: int, limit: int) -> tuple[PopularBooksRepor
             for r in rows
         ],
     )
-    _cache[key] = (time.time() + settings.report_cache_ttl_seconds, report)
-    return report, False
+
+
+def popular_books(db: Session, days: int, limit: int) -> tuple[PopularBooksReport, str]:
+    """Returns (report, cache_status) where cache_status is HIT / MISS / BYPASS."""
+    try:
+        version = redis_client.get(VERSION_KEY) or "0"
+        key = f"report:popular:v{version}:{days}:{limit}"
+        cached = redis_client.get(key)
+        if cached is not None:
+            return PopularBooksReport.model_validate_json(cached), "HIT"
+    except redis.RedisError:
+        log.warning("redis unavailable, report computed without cache")
+        return _query(db, days, limit), "BYPASS"
+
+    report = _query(db, days, limit)
+    try:
+        redis_client.set(key, report.model_dump_json(), ex=settings.report_cache_ttl_seconds)
+    except redis.RedisError:
+        pass
+    return report, "MISS"

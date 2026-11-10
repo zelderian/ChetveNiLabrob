@@ -1,6 +1,7 @@
 """Domain exceptions and their mapping to HTTP responses."""
 import logging
 
+import redis
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -64,6 +65,12 @@ def register_error_handlers(app: FastAPI) -> None:
         # (e.g. two concurrent inserts of the same e-mail).
         log.warning("integrity error: %s", exc.orig)
         return _error(409, "conflict", "Operation violates a data integrity constraint")
+
+    @app.exception_handler(redis.RedisError)
+    async def _redis(_: Request, exc: redis.RedisError):
+        # Sessions live in Redis: without it we cannot authenticate anyone.
+        log.error("redis unavailable: %s", exc)
+        return _error(503, "dependency_unavailable", "Session store is temporarily unavailable")
 
     @app.exception_handler(Exception)
     async def _unhandled(_: Request, exc: Exception):

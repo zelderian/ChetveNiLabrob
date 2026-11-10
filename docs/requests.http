@@ -1,5 +1,5 @@
 ### Libra API - requests for VS Code "REST Client" / JetBrains HTTP Client
-@base = http://localhost:8000
+@base = http://localhost:8001
 
 ### Health
 GET {{base}}/health

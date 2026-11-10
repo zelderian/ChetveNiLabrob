@@ -1,0 +1,26 @@
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant A as Any instance (app-1 / app-2)
+    participant R as Redis
+    participant P as PostgreSQL
+
+    C->>A: POST /api/v1/loans {book_id, days}<br/>Authorization: Bearer <token><br/>Idempotency-Key: <uuid>
+    A->>R: GET session:<sha256(token)>
+    R-->>A: member_id
+    A->>P: BEGIN
+    A->>P: SELECT * FROM members WHERE id=:m FOR UPDATE
+    A->>P: SELECT * FROM loans WHERE member_id=:m AND idempotency_key=:k
+    alt key already processed (retry after a crash)
+        P-->>A: existing loan
+        A->>P: ROLLBACK
+        A-->>C: 201 + Idempotent-Replayed: true (same loan)
+    else new request
+        A->>P: SELECT * FROM books WHERE id=:b FOR UPDATE
+        A->>P: checks: available_copies > 0, active loans < limit, no duplicate
+        A->>P: INSERT INTO loans (..., idempotency_key)<br/>UPDATE books SET available_copies = available_copies - 1
+        A->>P: COMMIT (atomic state change)
+        A->>R: INCR report:popular:version (invalidate shared cache)
+        A-->>C: 201 Created + X-Instance-ID
+    end
+    Note over A: Request-scoped objects (DB session, ORM objects)<br/>are discarded - nothing remains in process memory

@@ -1,5 +1,20 @@
 name: libra
 
+# Shared settings for every backend instance (same image, same config).
+x-app: &app
+  build: .
+  image: libra-app:latest
+  environment: &app-env
+    DATABASE_URL: postgresql+psycopg://libra:libra@db:5432/libra
+    REDIS_URL: redis://redis:6379/0
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+    redis:
+      condition: service_healthy
+  networks: [backend]
+  restart: unless-stopped
+
 services:
   db:
     image: postgres:16-alpine
@@ -17,9 +32,26 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # One-shot job: applies DB migrations, then exits.
+  # Shared store for sessions, report cache and counters.
+  # AOF persistence: sessions survive a Redis restart.
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # One-shot job: applies DB migrations once, before any instance starts
+  # (instances never race each other on schema changes).
   migrate:
     build: .
+    image: libra-app:latest
     command: ["alembic", "upgrade", "head"]
     environment:
       DATABASE_URL: postgresql+psycopg://libra:libra@db:5432/libra
@@ -29,20 +61,28 @@ services:
     networks: [backend]
     restart: "no"
 
-  app:
-    build: .
+  # Two interchangeable stateless instances of the same image.
+  # Published on separate ports so requests can be sent to a specific node
+  # (a load balancer in front of them is the subject of Lab 3).
+  app1:
+    <<: *app
     environment:
-      DATABASE_URL: postgresql+psycopg://libra:libra@db:5432/libra
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
+      <<: *app-env
+      INSTANCE_ID: app-1
     ports:
-      - "8000:8000"
-    networks: [backend]
-    restart: unless-stopped
+      - "8001:8000"
+
+  app2:
+    <<: *app
+    environment:
+      <<: *app-env
+      INSTANCE_ID: app-2
+    ports:
+      - "8002:8000"
 
 volumes:
   pgdata:
+  redisdata:
 
 networks:
   backend:

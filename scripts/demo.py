@@ -1,6 +1,6 @@
 """Walks through the main API endpoints (for the Lab 1 defence).
 
-    python scripts/demo.py                 # against http://localhost:8000
+    python scripts/demo.py                 # against http://localhost:8001
     python scripts/demo.py http://host:port
 """
 import json
@@ -9,7 +9,7 @@ import time
 
 from _http import request
 
-BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000").rstrip("/")
+BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8001").rstrip("/")
 suffix = str(int(time.time()))
 
 

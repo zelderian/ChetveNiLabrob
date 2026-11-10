@@ -1,0 +1,26 @@
+flowchart LR
+    client["👤 Client<br/>(curl / Postman / scripts)"]
+
+    subgraph compose["docker-compose · network: backend"]
+        direction LR
+        subgraph pool["Stateless application layer (same image libra-app)"]
+            direction TB
+            app1["Container: app1 · INSTANCE_ID=app-1<br/>FastAPI + Uvicorn :8000<br/>Routers → Services → SQLAlchemy / redis-py<br/><i>no in-memory business state</i>"]
+            app2["Container: app2 · INSTANCE_ID=app-2<br/>FastAPI + Uvicorn :8000<br/>Routers → Services → SQLAlchemy / redis-py<br/><i>no in-memory business state</i>"]
+        end
+        migrate["Container: migrate<br/>one-shot: alembic upgrade head"]
+        db[("PostgreSQL 16<br/>members · books · loans<br/>row locks, idempotency keys")]
+        redis[("Redis 7 (AOF)<br/>session:* · report:popular:* · login_fail:*")]
+        pgv[["Volume: pgdata"]]
+        rv[["Volume: redisdata"]]
+    end
+
+    client -- "HTTP :8001<br/>X-Instance-ID: app-1" --> app1
+    client -- "HTTP :8002<br/>X-Instance-ID: app-2" --> app2
+    app1 -- "SQL :5432" --> db
+    app2 -- "SQL :5432" --> db
+    app1 -- "RESP :6379" --> redis
+    app2 -- "RESP :6379" --> redis
+    migrate -- "DDL" --> db
+    db --- pgv
+    redis --- rv

@@ -71,6 +71,8 @@ class Loan(Base):
     fine_amount: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), default=Decimal("0"), server_default="0"
     )
+    # Client-supplied Idempotency-Key of the request that created the loan.
+    idempotency_key: Mapped[str | None] = mapped_column(String(64))
 
     book: Mapped[Book] = relationship()
 
@@ -89,5 +91,12 @@ class Loan(Base):
             "book_id",
             unique=True,
             postgresql_where=text("returned_at IS NULL"),
+        ),
+        Index(
+            "ux_loans_member_idempotency",
+            "member_id",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key IS NOT NULL"),
         ),
     )

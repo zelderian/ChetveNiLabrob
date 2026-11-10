@@ -9,23 +9,25 @@ from app.routers import auth, books, health, loans, members, reports
 
 logging.basicConfig(
     level=settings.log_level,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    format=f"%(asctime)s %(levelname)s [{settings.instance_id}] %(name)s %(message)s",
 )
 access_log = logging.getLogger("libra.access")
 
 app = FastAPI(
     title="Libra - Library Lending API",
-    version="1.0.0",
-    description="Lab 1: System Design baseline (members, books, loans).",
+    version="2.0.0",
+    description="Lab 2: stateless application layer (shared PostgreSQL + Redis).",
 )
 register_error_handlers(app)
 
 
 @app.middleware("http")
-async def access_logging(request: Request, call_next):
+async def instance_and_logging(request: Request, call_next):
+    # Ephemeral, request-scoped data only: nothing survives the request.
     started = time.perf_counter()
     response = await call_next(request)
     elapsed_ms = (time.perf_counter() - started) * 1000
+    response.headers["X-Instance-ID"] = settings.instance_id
     access_log.info(
         "%s %s -> %s (%.1f ms)",
         request.method, request.url.path, response.status_code, elapsed_ms,

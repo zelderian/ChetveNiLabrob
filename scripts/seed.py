@@ -1,7 +1,7 @@
 """Fills the system with demo data through the public API.
 
     python scripts/seed.py [base_url] [members] [books] [loans]
-    python scripts/seed.py http://localhost:8000 20 50 60
+    python scripts/seed.py http://localhost:8001 20 50 60
 """
 import random
 import sys
@@ -9,7 +9,7 @@ import time
 
 from _http import request
 
-BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000").rstrip("/")
+BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8001").rstrip("/")
 N_MEMBERS = int(sys.argv[2]) if len(sys.argv) > 2 else 20
 N_BOOKS = int(sys.argv[3]) if len(sys.argv) > 3 else 50
 N_LOANS = int(sys.argv[4]) if len(sys.argv) > 4 else 60

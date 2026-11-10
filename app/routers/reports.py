@@ -15,6 +15,6 @@ def popular_books(
     limit: int = Query(default=10, ge=1, le=50),
     db: Session = Depends(get_db),
 ):
-    report, cached = svc.popular_books(db, days, limit)
-    response.headers["X-Cache"] = "HIT" if cached else "MISS"
+    report, cache_status = svc.popular_books(db, days, limit)
+    response.headers["X-Cache"] = cache_status
     return report

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Header, Response, status
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -12,11 +12,20 @@ router = APIRouter(prefix="/api/v1", tags=["loans"])
 @router.post("/loans", response_model=LoanOut, status_code=status.HTTP_201_CREATED)
 def borrow(
     data: LoanCreate,
+    response: Response,
+    idempotency_key: str | None = Header(default=None, max_length=64),
     member_id: int = Depends(current_member_id),
     db: Session = Depends(get_db),
 ):
-    """Borrow a book: checks availability, loan limit and duplicates."""
-    return svc.to_out(svc.borrow_book(db, member_id, data.book_id, data.days))
+    """Borrow a book: checks availability, loan limit and duplicates.
+
+    Send an `Idempotency-Key` header to make retries safe: repeating the
+    request with the same key (on any instance) returns the same loan.
+    """
+    loan, replayed = svc.borrow_book(db, member_id, data.book_id, data.days, idempotency_key)
+    if replayed:
+        response.headers["Idempotent-Replayed"] = "true"
+    return svc.to_out(loan)
 
 
 @router.post("/loans/{loan_id}/return", response_model=LoanOut)
