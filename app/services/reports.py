@@ -3,34 +3,22 @@
 "Top-N popular books over the last D days" aggregates the `loans` table
 joined with `books` (GROUP BY + ORDER BY count) - the most expensive read.
 
-Lab 2: the result is cached in Redis, shared by all instances.
-Cache keys embed a version number; every borrow/return INCRements the
-version, so all instances stop using stale entries at the same moment
-(old versions simply expire by TTL). If Redis is down the report is
-computed directly from the DB (graceful degradation).
+Lab 4: Cache-Aside through app.cache, shared by all instances.
+  key  libra:report:popular:<params_hash>:v<report_ver>   TTL 120 s (+-10 %)
+  every borrow / return / book edit bumps report_ver after COMMIT.
+If the cache is down the report is computed from the DB (X-Cache: BYPASS).
 """
-import logging
 from datetime import datetime, timedelta, timezone
 
-import redis
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
+from app import cache
 from app.config import settings
 from app.models import Book, Loan
-from app.redis_client import redis_client
 from app.schemas import PopularBook, PopularBooksReport
 
-log = logging.getLogger("libra.reports")
-
-VERSION_KEY = "report:popular:version"
-
-
-def invalidate() -> None:
-    try:
-        redis_client.incr(VERSION_KEY)
-    except redis.RedisError:
-        log.warning("cannot invalidate report cache, entries will expire by TTL")
+REPORT_VERSION = "report:popular"
 
 
 def _query(db: Session, days: int, limit: int) -> PopularBooksReport:
@@ -55,20 +43,12 @@ def _query(db: Session, days: int, limit: int) -> PopularBooksReport:
 
 
 def popular_books(db: Session, days: int, limit: int) -> tuple[PopularBooksReport, str]:
-    """Returns (report, cache_status) where cache_status is HIT / MISS / BYPASS."""
-    try:
-        version = redis_client.get(VERSION_KEY) or "0"
-        key = f"report:popular:v{version}:{days}:{limit}"
-        cached = redis_client.get(key)
-        if cached is not None:
-            return PopularBooksReport.model_validate_json(cached), "HIT"
-    except redis.RedisError:
-        log.warning("redis unavailable, report computed without cache")
-        return _query(db, days, limit), "BYPASS"
-
-    report = _query(db, days, limit)
-    try:
-        redis_client.set(key, report.model_dump_json(), ex=settings.report_cache_ttl_seconds)
-    except redis.RedisError:
-        pass
-    return report, "MISS"
+    """Returns (report, cache_status) where cache_status is HIT / MISS / BYPASS / DISABLED."""
+    return cache.cache_aside(
+        key=f"{cache.PREFIX}:report:popular:{cache.params_hash(days=days, limit=limit)}",
+        versions=(REPORT_VERSION,),
+        ttl=settings.cache_ttl_report,
+        loader=lambda: _query(db, days, limit),
+        dump=lambda r: r.model_dump_json(),
+        load=PopularBooksReport.model_validate_json,
+    )

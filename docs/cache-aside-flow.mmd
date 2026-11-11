@@ -1,0 +1,36 @@
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant A as Any instance
+    participant R as cache (Redis)
+    participant P as PostgreSQL
+
+    rect rgb(235, 244, 255)
+    Note over C,P: Read: GET /api/v1/books/42
+    C->>A: GET /api/v1/books/42
+    A->>R: MGET libra:ver:book:42 → "7"
+    A->>R: GET libra:book:42:v7
+    alt HIT
+        R-->>A: JSON
+        A-->>C: 200 · X-Cache: HIT (no DB access)
+    else MISS
+        R-->>A: nil
+        A->>R: SET libra:book:42:v7:lock NX PX 2000 (stampede guard)
+        A->>P: SELECT * FROM books WHERE id = 42
+        P-->>A: row
+        A->>R: SET libra:book:42:v7 JSON EX 300±10%
+        A-->>C: 200 · X-Cache: MISS
+    else cache down (timeout 0.3 s → circuit breaker 5 s)
+        A->>P: SELECT ... (direct)
+        A-->>C: 200 · X-Cache: BYPASS
+    end
+    end
+
+    rect rgb(255, 243, 235)
+    Note over C,P: Write: PATCH /api/v1/books/42
+    C->>A: PATCH /api/v1/books/42
+    A->>P: BEGIN · SELECT ... FOR UPDATE · UPDATE · COMMIT
+    A->>R: INCR libra:ver:book:42 · INCR libra:ver:books:list · INCR libra:ver:report:popular
+    A-->>C: 200
+    Note over A,P: old keys with v7 are unreachable for every instance and expire by TTL<br/>the next read is a MISS with fresh data
+    end

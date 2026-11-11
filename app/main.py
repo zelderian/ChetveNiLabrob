@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 
 from app.config import settings
 from app.errors import register_error_handlers
-from app.routers import auth, books, health, loans, members, reports
+from app.routers import auth, books, cache, health, loans, members, reports
 
 logging.basicConfig(
     level=settings.log_level,
@@ -16,8 +16,8 @@ access_log = logging.getLogger("libra.access")
 
 app = FastAPI(
     title="Libra - Library Lending API",
-    version="2.0.0",
-    description="Lab 2: stateless application layer (shared PostgreSQL + Redis).",
+    version="4.0.0",
+    description="Stateless API behind a load balancer, with a distributed cache (labs 1-5).",
 )
 register_error_handlers(app)
 
@@ -38,5 +38,6 @@ async def instance_and_logging(request: Request, call_next):
     return response
 
 
-for r in (health.router, auth.router, members.router, books.router, loans.router, reports.router):
+for r in (health.router, auth.router, members.router, books.router, loans.router, reports.router,
+          cache.router):
     app.include_router(r)

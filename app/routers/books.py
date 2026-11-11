@@ -15,6 +15,7 @@ def create_book(data: BookCreate, db: Session = Depends(get_db)):
 
 @router.get("", response_model=Page[BookOut])
 def list_books(
+    response: Response,
     q: str | None = Query(default=None, max_length=100, description="Search in title/author"),
     author: str | None = None,
     available_only: bool = False,
@@ -22,13 +23,18 @@ def list_books(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    items, total = svc.list_books(db, q, author, available_only, limit, offset)
-    return Page(items=items, total=total, limit=limit, offset=offset)
+    """Cached (Cache-Aside, TTL 60 s). X-Cache shows HIT / MISS / BYPASS."""
+    page, status_ = svc.list_books_cached(db, q, author, available_only, limit, offset)
+    response.headers["X-Cache"] = status_
+    return page
 
 
 @router.get("/{book_id}", response_model=BookOut)
-def get_book(book_id: int, db: Session = Depends(get_db)):
-    return svc.get_book(db, book_id)
+def get_book(book_id: int, response: Response, db: Session = Depends(get_db)):
+    """Cached (Cache-Aside, TTL 300 s). X-Cache shows HIT / MISS / BYPASS."""
+    book, status_ = svc.get_book_cached(db, book_id)
+    response.headers["X-Cache"] = status_
+    return book
 
 
 @router.patch("/{book_id}", response_model=BookOut)

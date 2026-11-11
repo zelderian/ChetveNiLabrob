@@ -4,7 +4,7 @@ name: libra
 # Topology (Lab 3):
 #   client --> lb (HAProxy, :8080 - the ONLY published API port)
 #                 --> app1 | app2 | app3   (private network, no published ports)
-#                       --> db (PostgreSQL)   --> redis (sessions)
+#                       --> db (PostgreSQL)   --> redis (sessions)   --> cache (Lab 4)
 #
 # Switch the balancing algorithm (recreates only the lb container):
 #   LB_ALGO=leastconn docker compose up -d lb          (bash / Git Bash)
@@ -19,6 +19,10 @@ x-app: &app
   environment: &app-env
     DATABASE_URL: postgresql+psycopg://libra:libra@db:5432/libra
     REDIS_URL: redis://redis:6379/0
+    CACHE_URL: redis://cache:6379/0
+    CACHE_ENABLED: ${CACHE_ENABLED:-true}
+  # NB: no depends_on "cache" - the cache is optional, instances start and
+  # serve (from the DB) even when it is down.
   depends_on:
     migrate:
       condition: service_completed_successfully
@@ -86,12 +90,27 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # Shared store for sessions, report cache and counters (AOF persistence).
+  # Durable shared store: sessions + login counters (AOF persistence).
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redisdata:/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # Lab 4 - distributed cache. Disposable by design: no persistence, bounded
+  # memory, LFU eviction among keys with a TTL (version counters have no TTL
+  # and are therefore never evicted). Demo: docker compose stop cache
+  cache:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no",
+              "--maxmemory", "128mb", "--maxmemory-policy", "volatile-lfu"]
     networks: [backend]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]

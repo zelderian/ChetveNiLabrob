@@ -1,0 +1,13 @@
+flowchart LR
+    client["👤 Clients"]
+    lb["⚖️ lb: HAProxy :8080<br/>leastconn · health checks"]
+    pool["Stateless pool<br/>app-1 · app-2 · app-3<br/>(FastAPI, cache-aside in app/cache.py)"]
+    cache[("⚡ cache: Redis 7<br/>book · list · report entries<br/>TTL + version keys<br/>maxmemory 128mb · volatile-lfu<br/>no persistence (disposable)")]
+    db[("🐘 PostgreSQL 16<br/>source of truth")]
+    redis[("🔐 redis: Redis 7 (AOF)<br/>sessions · login counters")]
+
+    client -- "HTTP :8080" --> lb
+    lb -- "HTTP :8000" --> pool
+    pool -- "① GET key → HIT: return<br/>③ SET key EX ttl<br/>④ INCR version after COMMIT" --> cache
+    pool -- "② MISS / BYPASS: SQL<br/>all writes" --> db
+    pool -- "sessions" --> redis

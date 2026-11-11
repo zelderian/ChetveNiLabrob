@@ -10,6 +10,7 @@ os.environ.setdefault(
     os.getenv("TEST_DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/libra_test"),
 )
 os.environ.setdefault("REDIS_URL", os.getenv("TEST_REDIS_URL", "redis://localhost:6379/15"))
+os.environ.setdefault("CACHE_URL", os.getenv("TEST_CACHE_URL", "redis://localhost:6379/14"))
 
 import pytest  # noqa: E402
 from alembic import command  # noqa: E402
@@ -19,6 +20,7 @@ from sqlalchemy import text  # noqa: E402
 
 from app.db import engine  # noqa: E402
 from app.main import app  # noqa: E402
+from app.cache import cache_client  # noqa: E402
 from app.redis_client import redis_client  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -39,6 +41,7 @@ def _clean():
     with engine.begin() as conn:
         conn.execute(text("TRUNCATE loans, books, members RESTART IDENTITY CASCADE"))
     redis_client.flushdb()
+    cache_client.flushdb()
     yield
 
 

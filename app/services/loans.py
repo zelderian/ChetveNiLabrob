@@ -11,6 +11,8 @@ shared database, so it holds no matter how many instances are running:
   SAME transaction as the loan (unique per member). A retry - e.g. after the
   instance that handled the first attempt crashed - returns the already
   created loan instead of borrowing twice.
+* cache (Lab 4): after COMMIT the book card, catalogue pages and the report
+  are invalidated (available_copies / loan counts changed).
 """
 import math
 from datetime import datetime, timedelta, timezone
@@ -22,7 +24,7 @@ from app.config import settings
 from app.errors import Conflict, Forbidden, NotFound
 from app.models import Book, Loan, Member
 from app.schemas import LoanOut
-from app.services import reports
+from app.services.books import invalidate_book
 
 
 def _now() -> datetime:
@@ -93,7 +95,7 @@ def borrow_book(
     db.add(loan)
     db.commit()
     db.refresh(loan)
-    reports.invalidate()
+    invalidate_book(book_id)
     return loan, False
 
 
@@ -115,7 +117,7 @@ def return_book(db: Session, member_id: int, loan_id: int) -> Loan:
     book.available_copies += 1
     db.commit()
     db.refresh(loan)
-    reports.invalidate()
+    invalidate_book(loan.book_id)
     return loan
 
 
