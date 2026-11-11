@@ -1,0 +1,39 @@
+{
+ "scenario_a_read": {
+  "xact_commit": 713,
+  "xact_rollback": 707,
+  "tup_returned": 1908716,
+  "tup_fetched": 385743,
+  "tup_inserted": 0,
+  "tup_updated": 0,
+  "blks_read": 0,
+  "blks_hit": 54111,
+  "cache_server_hits": 241977,
+  "cache_server_misses": 34940,
+  "wall_seconds": 180.9
+ },
+ "scenario_b_write": {
+  "xact_commit": 80931,
+  "xact_rollback": 27450,
+  "tup_returned": 312166,
+  "tup_fetched": 208196,
+  "tup_inserted": 15365,
+  "tup_updated": 33970,
+  "blks_read": 0,
+  "blks_hit": 1210841,
+  "cache_server_hits": 1,
+  "cache_server_misses": 1,
+  "wall_seconds": 190.8
+ },
+ "scenario_c_workflow": {
+  "xact_commit": 33461,
+  "xact_rollback": 20242,
+  "tup_returned": 47361690,
+  "tup_fetched": 2761439,
+  "tup_inserted": 3306,
+  "tup_updated": 9932,
+  "blks_read": 1,
+  "blks_hit": 1520335,
+  "wall_seconds": 194.4
+ }
+}

@@ -1,0 +1,14 @@
+{
+ "measured_at": "2026-11-11 12:12:13",
+ "docker_host_cpus": "n/a on dev bench (2 vCPU VM)",
+ "backend_instances": 3,
+ "instance_limits": "dev bench: none (local processes); docker-compose: cpus=1.0, mem=512m, 1 uvicorn process",
+ "db_pool_per_instance": "pool_size=10 + max_overflow=5",
+ "postgres": "PostgreSQL 16, default config (max_connections=100, shared_buffers=128MB)",
+ "cache": "redis 7, maxmemory 128mb, volatile-lfu",
+ "load_balancer": "HAProxy 2.8.30, leastconn",
+ "load_generator": "k6 1.4.2 on the same VM (uses ~8-14 % CPU - partial isolation only)",
+ "bench": "dev bench used for the numbers in README: services run as local processes on ONE 2 vCPU / 8 GB Linux VM (no per-instance cgroup CPU limits); the docker-compose stack on your PC applies cpus=1.0 per app container",
+ "dataset": "10.2k books, 2.3k members, ~330k loans (scripts/bulk_seed.sql + test data)",
+ "runtime": "Python 3.13, uvicorn 0.54 (1 process per instance, threadpool 40), SQLAlchemy 2.1 QueuePool 10+5, pool_timeout 30 s"
+}

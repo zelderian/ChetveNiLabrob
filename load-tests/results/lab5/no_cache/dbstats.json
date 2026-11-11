@@ -1,0 +1,13 @@
+{
+ "scenario_a_read": {
+  "xact_commit": 17171,
+  "xact_rollback": 17166,
+  "tup_returned": 286532694,
+  "tup_fetched": 135069772,
+  "tup_inserted": 0,
+  "tup_updated": 0,
+  "blks_read": 0,
+  "blks_hit": 10860469,
+  "wall_seconds": 181.8
+ }
+}

@@ -6,3 +6,6 @@ venv/
 .env
 .idea/
 .vscode/
+# local Redis snapshots
+dump.rdb
+*.rdb

@@ -97,9 +97,34 @@ STAGE_COLS = [("VUs", "vus", str), ("Throughput (RPS)", "rps", lambda v: f"{v:.0
 
 
 def label_end(ax, xs, ys, text, color):
-    ax.annotate(text, (xs[-1], ys[-1]), xytext=(6, 0), textcoords="offset points",
+    # nudge the label vertically if it would collide with one already placed
+    placed = getattr(ax, "_end_labels", [])
+    lo, hi = ax.get_ylim() if ax.get_yscale() == "linear" else (0, 0)
+    span = (hi - lo) or max(abs(ys[-1]), 1)
+    dy = 0
+    for y in placed:
+        if abs(y - ys[-1]) < 0.04 * span:
+            dy += 11
+    placed.append(ys[-1])
+    ax._end_labels = placed
+    ax.annotate(text, (xs[-1], ys[-1]), xytext=(6, dy), textcoords="offset points",
                 va="center", fontsize=9, color=INK)
     ax.plot(xs[-1], ys[-1], "o", ms=5, color=color, mec="#fcfcfb", mew=1.5)
+
+
+def fig_legend(fig, ax, ncols=3):
+    """Legend below the panels, so it never covers data."""
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", ncols=ncols, bbox_to_anchor=(0.5, 0.0))
+
+
+def log_ms(ax):
+    """Latency spans 10 ms .. 30 s under saturation: log scale keeps both readable."""
+    from matplotlib.ticker import FuncFormatter, NullFormatter
+    ax.set_yscale("log")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
+    ax.yaxis.set_minor_formatter(NullFormatter())
+    ax.set_ylabel("ms (log scale)")
 
 
 def save(fig, name):
@@ -166,7 +191,7 @@ def lab5():
     base = os.path.join(RES, "lab5")
     runs = {os.path.basename(p): {os.path.basename(f)[:-5]: load(f)
                                    for f in sorted(glob.glob(os.path.join(p, "*.json")))
-                                   if not f.endswith("dbstats.json")}
+                                   if not f.endswith(("dbstats.json", "environment.json"))}
             for p in sorted(glob.glob(os.path.join(base, "*"))) if os.path.isdir(p)}
     if not runs:
         print("no lab5 results")
@@ -186,26 +211,27 @@ def lab5():
 
     # 1) baseline: throughput + latency per scenario
     bl = runs.get("baseline", {})
+    names = {"A": "scenario_a_read", "B": "scenario_b_write", "C": "scenario_c_workflow"}
     if bl:
         fig, axes = plt.subplots(1, 2, figsize=(11, 3.8))
-        for i, key in enumerate(("scenario_a", "scenario_b", "scenario_c")):
+        for i, (letter, key) in enumerate(names.items()):
             if key in bl:
                 rows = per_stage(bl[key])
                 xs, ys = [r["vus"] for r in rows], [r["rps"] for r in rows]
-                axes[0].plot(xs, ys, "-o", color=C[i], lw=2, ms=6, label=SCEN[key[-1].upper()])
-                label_end(axes[0], xs, ys, key[-1].upper(), C[i])
+                axes[0].plot(xs, ys, "-o", color=C[i], lw=2, ms=6, label=SCEN[letter])
+                label_end(axes[0], xs, ys, letter, C[i])
                 ys = [r["p95"] for r in rows]
-                axes[1].plot(xs, ys, "-o", color=C[i], lw=2, ms=6, label=SCEN[key[-1].upper()])
-                label_end(axes[1], xs, ys, key[-1].upper(), C[i])
+                axes[1].plot(xs, ys, "-o", color=C[i], lw=2, ms=6, label=SCEN[letter])
+                label_end(axes[1], xs, ys, letter, C[i])
         axes[0].set(title="Throughput vs load", xlabel="virtual users", ylabel="requests / s")
-        axes[1].set(title="p95 latency vs load", xlabel="virtual users", ylabel="ms")
-        for a in axes:
-            a.set_ylim(bottom=0)
-        axes[0].legend(loc="upper left", fontsize=8)
+        axes[1].set(title="p95 latency vs load", xlabel="virtual users")
+        axes[0].set_ylim(bottom=0)
+        log_ms(axes[1])
+        fig_legend(fig, axes[0])
         fig.suptitle("Lab 5 - baseline (3 instances, cache on)", fontsize=11, color=INK2)
         save(fig, "lab5-baseline.png")
 
-        for key in ("scenario_a", "scenario_b", "scenario_c"):
+        for letter, key in names.items():
             if key not in bl:
                 continue
             rows = per_stage(bl[key])
@@ -215,15 +241,15 @@ def lab5():
                 ys = [r[k] for r in rows]
                 ax.plot(xs, ys, "-o", color=C[i], lw=2, ms=6, label=k)
                 label_end(ax, xs, ys, k, C[i])
-            ax.set(title=f"{SCEN[key[-1].upper()]}: latency percentiles", xlabel="virtual users",
-                   ylabel="ms")
-            ax.set_ylim(bottom=0)
-            ax.legend(loc="upper left", ncols=3)
-            save(fig, f"lab5-latency-{key[-1]}.png")
+            ax.set(title=f"{SCEN[letter]}: latency percentiles", xlabel="virtual users")
+            log_ms(ax)
+            fig_legend(fig, ax)
+            save(fig, f"lab5-latency-{letter.lower()}.png")
 
     # 2) scaling: scenario A with 1 / 2 / 3 instances
-    sc = [(n, runs[f"scale_{n}"]["scenario_a"]) for n in (1, 2, 3)
-          if f"scale_{n}" in runs and "scenario_a" in runs[f"scale_{n}"]]
+    scale_runs = {n: runs.get(f"scale_{n}", {}).get("scenario_a_read") for n in (1, 2)}
+    scale_runs[3] = bl.get("scenario_a_read")
+    sc = [(n, d) for n, d in scale_runs.items() if d]
     if len(sc) > 1:
         fig, axes = plt.subplots(1, 2, figsize=(11, 3.8))
         for i, (n, data) in enumerate(sc):
@@ -234,29 +260,29 @@ def lab5():
                 ax.plot(xs, ys, "-o", color=C[i], lw=2, ms=6, label=f"{n} instance(s)")
                 label_end(ax, xs, ys, f"{n}x", C[i])
         axes[0].set(title="Throughput", xlabel="virtual users", ylabel="requests / s")
-        axes[1].set(title="p95 latency", xlabel="virtual users", ylabel="ms")
-        for a in axes:
-            a.set_ylim(bottom=0)
-        axes[0].legend(loc="upper left")
+        axes[1].set(title="p95 latency", xlabel="virtual users")
+        axes[0].set_ylim(bottom=0)
+        log_ms(axes[1])
+        fig_legend(fig, axes[0])
         fig.suptitle("Lab 5 - scaling impact, scenario A", fontsize=11, color=INK2)
         save(fig, "lab5-scaling.png")
 
     # 3) caching: scenario A cache disabled vs enabled
-    if "no_cache" in runs and "scenario_a" in runs["no_cache"] and "scenario_a" in bl:
+    if "scenario_a_read" in runs.get("no_cache", {}) and "scenario_a_read" in bl:
         fig, axes = plt.subplots(1, 2, figsize=(11, 3.8))
-        for i, (label, data) in enumerate((("cache disabled", runs["no_cache"]["scenario_a"]),
-                                           ("cache enabled (warm)", bl["scenario_a"]))):
+        for i, (label, data) in enumerate((("cache enabled (warm)", bl["scenario_a_read"]),
+                                           ("cache disabled", runs["no_cache"]["scenario_a_read"]))):
             rows = per_stage(data)
             xs = [r["vus"] for r in rows]
             for ax, k in zip(axes, ("rps", "p95")):
                 ys = [r[k] for r in rows]
                 ax.plot(xs, ys, "-o", color=C[i], lw=2, ms=6, label=label)
-                label_end(ax, xs, ys, "off" if i == 0 else "on", C[i])
+                label_end(ax, xs, ys, "on" if i == 0 else "off", C[i])
         axes[0].set(title="Throughput", xlabel="virtual users", ylabel="requests / s")
-        axes[1].set(title="p95 latency", xlabel="virtual users", ylabel="ms")
-        for a in axes:
-            a.set_ylim(bottom=0)
-        axes[0].legend(loc="upper left")
+        axes[1].set(title="p95 latency", xlabel="virtual users")
+        axes[0].set_ylim(bottom=0)
+        log_ms(axes[1])
+        fig_legend(fig, axes[0], ncols=2)
         fig.suptitle("Lab 5 - caching impact, scenario A (3 instances)", fontsize=11, color=INK2)
         save(fig, "lab5-cache.png")
 
