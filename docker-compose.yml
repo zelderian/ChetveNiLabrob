@@ -1,6 +1,18 @@
 name: libra
 
-# Shared settings for every backend instance (same image, same config).
+# ---------------------------------------------------------------------------
+# Topology (Lab 3):
+#   client --> lb (HAProxy, :8080 - the ONLY published API port)
+#                 --> app1 | app2 | app3   (private network, no published ports)
+#                       --> db (PostgreSQL)   --> redis (sessions)
+#
+# Switch the balancing algorithm (recreates only the lb container):
+#   LB_ALGO=leastconn docker compose up -d lb          (bash / Git Bash)
+#   $env:LB_ALGO="leastconn"; docker compose up -d lb  (PowerShell)
+# Values: roundrobin | leastconn | source | random. Weights: APP1_WEIGHT..APP3_WEIGHT
+# Slow-node experiment: APP3_DELAY_MS=200 docker compose up -d app3
+# ---------------------------------------------------------------------------
+
 x-app: &app
   build: .
   image: libra-app:latest
@@ -14,8 +26,50 @@ x-app: &app
       condition: service_healthy
   networks: [backend]
   restart: unless-stopped
+  stop_grace_period: 15s       # SIGTERM -> uvicorn finishes in-flight requests
+  # Every replica gets the same, fixed share of the host - makes 1/2/3-instance
+  # comparisons fair (Lab 3 scale-out, Lab 5 baseline).
+  cpus: 1.0
+  mem_limit: 512m
 
 services:
+  lb:
+    image: haproxy:2.8-alpine
+    volumes:
+      - ./lb/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    environment:
+      LB_ALGO: ${LB_ALGO:-roundrobin}
+      APP1_WEIGHT: ${APP1_WEIGHT:-1}
+      APP2_WEIGHT: ${APP2_WEIGHT:-1}
+      APP3_WEIGHT: ${APP3_WEIGHT:-1}
+    ports:
+      - "8080:8080"            # single entry point for clients
+      - "8404:8404"            # HAProxy stats dashboard
+    depends_on: [app1, app2, app3]
+    networks: [backend]
+    restart: unless-stopped
+
+  app1:
+    <<: *app
+    environment:
+      <<: *app-env
+      INSTANCE_ID: app-1
+      CHAOS_DELAY_MS: ${APP1_DELAY_MS:-0}
+
+  app2:
+    <<: *app
+    environment:
+      <<: *app-env
+      INSTANCE_ID: app-2
+      CHAOS_DELAY_MS: ${APP2_DELAY_MS:-0}
+
+  app3:
+    <<: *app
+    environment:
+      <<: *app-env
+      INSTANCE_ID: app-3
+      CHAOS_DELAY_MS: ${APP3_DELAY_MS:-0}
+
   db:
     image: postgres:16-alpine
     environment:
@@ -32,8 +86,7 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # Shared store for sessions, report cache and counters.
-  # AOF persistence: sessions survive a Redis restart.
+  # Shared store for sessions, report cache and counters (AOF persistence).
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
@@ -47,8 +100,20 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # One-shot job: applies DB migrations once, before any instance starts
-  # (instances never race each other on schema changes).
+  # Load generator (Lab 3/5) - only started on demand:
+  #   docker compose --profile loadtest run --rm k6 run /load-tests/lb_experiment.js
+  # Runs in its own container on the private network, so it reaches the system
+  # exactly like an external client does: through lb:8080.
+  k6:
+    image: grafana/k6:1.4.2
+    profiles: ["loadtest"]
+    volumes:
+      - ./load-tests:/load-tests
+    working_dir: /load-tests
+    environment:
+      BASE_URL: http://lb:8080
+    networks: [backend]
+
   migrate:
     build: .
     image: libra-app:latest
@@ -60,25 +125,6 @@ services:
         condition: service_healthy
     networks: [backend]
     restart: "no"
-
-  # Two interchangeable stateless instances of the same image.
-  # Published on separate ports so requests can be sent to a specific node
-  # (a load balancer in front of them is the subject of Lab 3).
-  app1:
-    <<: *app
-    environment:
-      <<: *app-env
-      INSTANCE_ID: app-1
-    ports:
-      - "8001:8000"
-
-  app2:
-    <<: *app
-    environment:
-      <<: *app-env
-      INSTANCE_ID: app-2
-    ports:
-      - "8002:8000"
 
 volumes:
   pgdata:

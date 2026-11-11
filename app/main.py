@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 
@@ -25,6 +26,8 @@ register_error_handlers(app)
 async def instance_and_logging(request: Request, call_next):
     # Ephemeral, request-scoped data only: nothing survives the request.
     started = time.perf_counter()
+    if settings.chaos_delay_ms and request.url.path.startswith("/api/"):
+        await asyncio.sleep(settings.chaos_delay_ms / 1000)  # Lab 3: slow-node simulation
     response = await call_next(request)
     elapsed_ms = (time.perf_counter() - started) * 1000
     response.headers["X-Instance-ID"] = settings.instance_id

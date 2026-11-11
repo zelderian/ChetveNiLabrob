@@ -1,0 +1,26 @@
+flowchart LR
+    client["👤 Clients<br/>(browser / curl / k6)"]
+
+    subgraph host["Docker host"]
+        direction LR
+        subgraph public["published ports"]
+            lb["⚖️ lb: HAProxy 2.8<br/>:8080 API · :8404 stats<br/>balance = ${LB_ALGO}<br/>active check GET /health every 2s<br/>passive: observe layer7, retries + redispatch"]
+        end
+        subgraph backend["private network: backend (no published ports)"]
+            direction TB
+            subgraph pool["Upstream pool libra_pool (stateless, cpus: 1.0 each)"]
+                app1["app1 · app-1<br/>FastAPI :8000"]
+                app2["app2 · app-2<br/>FastAPI :8000"]
+                app3["app3 · app-3<br/>FastAPI :8000"]
+            end
+            db[("PostgreSQL 16<br/>pool 10+5 per instance")]
+            redis[("Redis 7<br/>sessions · cache · counters")]
+        end
+    end
+
+    client -- "HTTP :8080 (single entry point)" --> lb
+    lb -- "HTTP :8000" --> app1
+    lb -- "HTTP :8000" --> app2
+    lb -- "HTTP :8000" --> app3
+    app1 & app2 & app3 -- "SQL :5432" --> db
+    app1 & app2 & app3 -- "RESP :6379" --> redis

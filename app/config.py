@@ -29,6 +29,9 @@ class Settings:
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
     # Identifies the node in responses (X-Instance-ID). Container hostname by default.
     instance_id: str = os.getenv("INSTANCE_ID") or socket.gethostname()
+    # Lab 3 experiment: synthetic latency added to every /api request of THIS
+    # instance (simulates a degraded / slower node). 0 = disabled.
+    chaos_delay_ms: int = _int("CHAOS_DELAY_MS", 0)
 
 
 settings = Settings()

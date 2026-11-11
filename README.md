@@ -7,39 +7,51 @@
 |---|---|---|---|
 | №1 | System Design та базовий прототип | 2–6 | `lab1` |
 | №2 | Stateless-архітектура, винесення стану | 7 | `lab2` |
+| №3 | Горизонтальне масштабування та балансування навантаження | 8 | `lab3` |
+| №4 | Розподілене кешування | 9 | `lab4` |
+| №5 | Навантажувальне тестування, Performance Baseline | 10 | `lab5` |
 
-`git checkout lab1` показує стан проєкту після лаби 1 (один інстанс на порту 8000), а гілка
-`main` містить поточний стан.
+`git checkout labN` показує стан проєкту після відповідної лаби, а гілка `main` містить поточний
+стан (усі лаби).
 
 ---
 
 ## 1. Швидкий старт
 
-Потрібен лише **Docker Desktop**. Python локально потрібен тільки для демо-скриптів.
+Потрібен лише **Docker Desktop**. Python локально потрібен тільки для демо-скриптів, а k6
+для навантажувальних тестів можна запускати теж у Docker (розділ 10).
 
 ```bash
 git clone <repo-url> libra && cd libra
-docker compose up --build -d      # db + redis -> migrate -> app1 + app2
+docker compose up --build -d      # db + redis + cache -> migrate -> app1..app3 -> lb
 ```
 
-Після старту доступні:
+Клієнт бачить **лише балансувальник**: інстанси не мають опублікованих портів.
 
-| Що | Інстанс 1 | Інстанс 2 |
-|---|---|---|
-| API | http://localhost:8001 | http://localhost:8002 |
-| Swagger UI | http://localhost:8001/docs | http://localhost:8002/docs |
-| OpenAPI-специфікація | http://localhost:8001/openapi.json | … |
-| Readiness (БД + Redis) | http://localhost:8001/health | http://localhost:8002/health |
+| Що | URL |
+|---|---|
+| API (єдина точка входу) | http://localhost:8080 |
+| Swagger UI | http://localhost:8080/docs |
+| OpenAPI-специфікація | http://localhost:8080/openapi.json |
+| Readiness (БД + сесії) | http://localhost:8080/health |
+| Дашборд HAProxy (стан вузлів, розподіл) | http://localhost:8404 |
 
-Порядок старту детермінований. Спочатку `db` і `redis` проходять healthcheck. Потім `migrate`
-один раз виконує `alembic upgrade head` і завершується. Лише після успішних міграцій стартують
-`app1` і `app2`, тож інстанси ніколи не виконують міграції паралельно.
+Порядок старту детермінований. Спочатку `db` і сховища Redis проходять healthcheck. Потім
+`migrate` один раз виконує `alembic upgrade head` і завершується. Лише після успішних міграцій
+стартують `app1..app3`, а за ними `lb`. Інстанси ніколи не виконують міграції паралельно.
 
 ```bash
-docker compose ps                 # стан контейнерів
-docker compose logs -f app1 app2  # логи (кожен рядок містить [app-1] / [app-2])
-docker compose down               # зупинити (дані лишаються у volume pgdata / redisdata)
-docker compose down -v            # зупинити і ВИДАЛИТИ дані
+docker compose ps                       # стан контейнерів
+docker compose logs -f app1 app2 app3   # логи (кожен рядок містить [app-1] / [app-2] / [app-3])
+docker compose down                     # зупинити (дані лишаються у volume)
+docker compose down -v                  # зупинити і ВИДАЛИТИ дані
+```
+
+Для перевірок лаби 2, яким потрібен прямий доступ до конкретного інстансу, є override-файл, що
+публікує порти 8001–8003:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.direct.yml up -d
 ```
 
 ### Демонстрація
@@ -47,8 +59,10 @@ docker compose down -v            # зупинити і ВИДАЛИТИ дан�
 ```bash
 python scripts/seed.py                               # демо-дані (20 читачів, 50 книг, видачі)
 python scripts/demo.py                               # усі основні endpoint-и (лаба 1)
-python scripts/cross_instance_check.py               # консистентність між інстансами (лаба 2)
-python scripts/failover_check.py --kill app1 --restart   # аварійна зупинка інстансу (лаба 2)
+python scripts/cross_instance_check.py               # консистентність між інстансами (лаба 2, override)
+python scripts/failover_check.py --kill app1 --restart   # аварійна зупинка інстансу (лаба 2, override)
+python scripts/lb_distribution.py                    # розподіл запитів балансувальником (лаба 3)
+python scripts/cache_demo.py                         # HIT / MISS / інвалідація / fallback (лаба 4)
 ```
 
 Скрипти використовують тільки стандартну бібліотеку Python і запускаються з кореня репозиторію.
@@ -60,7 +74,7 @@ python scripts/failover_check.py --kill app1 --restart   # аварійна зу
 python scripts/demo.py                       # створили дані
 docker compose restart db                    # перезапуск СУБД
 # або повністю: docker compose down && docker compose up -d
-curl http://localhost:8001/api/v1/books      # дані на місці (volume pgdata)
+curl http://localhost:8080/api/v1/books      # дані на місці (volume pgdata)
 ```
 
 ### Тести
@@ -489,3 +503,235 @@ RESULT: PASSED - no state lost or duplicated
 у локальній мережі); Redis стає критичною залежністю (для production потрібні Sentinel або
 Cluster); блокування в БД переносять конкуренцію з процесу в СУБД, що є новим потенційним
 вузьким місцем при масштабуванні (див. B2, B3 і лабу 3).
+
+---
+
+## 8. Лабораторна №3: Горизонтальне масштабування та балансування навантаження
+
+### 8.1. Пул backend-сервісів
+
+Три репліки одного образу `libra-app` (`app1`, `app2`, `app3`) зі спільними PostgreSQL і Redis.
+Кожна:
+- має власний життєвий цикл: окремий контейнер, `restart: unless-stopped`, `stop_grace_period: 15s`
+  для коректного завершення in-flight запитів;
+- має однакові обмеження ресурсів `cpus: 1.0`, `mem_limit: 512m` і рівно 1 процес Uvicorn, тож
+  порівняння 1/2/3 інстансів чесне;
+- повертає свій `X-Instance-ID` (`app-1` / `app-2` / `app-3`).
+
+### 8.2. Єдина точка входу: HAProxy
+
+Конфігурація: [`lb/haproxy.cfg`](lb/haproxy.cfg). Чому HAProxy, а не Nginx OSS: HAProxy має
+безкоштовні **активні** health checks (`option httpchk`), runtime API і вбудований дашборд.
+У Nginx OSS є лише пасивні перевірки (`max_fails`).
+
+**Інкапсуляція:** назовні опубліковано тільки `lb:8080` (API) і `lb:8404` (дашборд). Інстанси та
+сховища живуть у приватній мережі `backend` і не мають `ports:`, тому з хоста до них не
+достукатися:
+
+```bash
+curl http://localhost:8080/api/v1/books   # ✅ через балансувальник
+curl http://localhost:8001/health         # ❌ connection refused (порт не опубліковано)
+```
+
+HAProxy знаходить інстанси через вбудований DNS Docker (`resolvers docker`), тож після рестарту
+контейнера з новою IP-адресою балансувальник підхоплює її автоматично. Реальну IP-адресу клієнта
+застосунок отримує в `X-Forwarded-For`.
+
+### 8.3. Алгоритми балансування
+
+Алгоритм і ваги задаються змінними середовища, без редагування конфігу:
+
+| Алгоритм | Як увімкнути | Коли доречний |
+|---|---|---|
+| Round Robin | `LB_ALGO=roundrobin` (за замовчуванням) | однорідні вузли, короткі однакові запити |
+| Weighted Round Robin | `APP1_WEIGHT=3 APP2_WEIGHT=2 APP3_WEIGHT=1` | гетерогенне залізо, canary-реліз (вага 1 з 10) |
+| Least Connections | `LB_ALGO=leastconn` | різна тривалість запитів (звіти поряд із CRUD), деградовані вузли |
+| IP Hash | `LB_ALGO=source` (+ `hash-type consistent`) | прив'язка клієнта до вузла на рівні L4 (локальні кеші, WebSocket) |
+
+**Live-переключення** (перестворюється лише контейнер `lb`, а backend і дані не зачіпаються):
+
+```bash
+LB_ALGO=leastconn docker compose up -d lb             # Git Bash
+$env:LB_ALGO="leastconn"; docker compose up -d lb     # PowerShell
+python scripts/lb_distribution.py                     # заголовок X-LB-Algorithm покаже новий алгоритм
+```
+
+Ваги можна міняти й **без перезапуску** через runtime API:
+`docker compose exec lb sh -c "echo 'set weight libra_pool/app1 3' | nc 127.0.0.1 9999"`.
+
+#### Розподіл запитів (`scripts/lb_distribution.py`, GET `/api/v1/books`, 10 паралельних клієнтів)
+
+```
+LB algorithm: roundrobin   requests: 300
+  app-1      100   33.3%  #############
+  app-2      100   33.3%  #############
+  app-3      100   33.3%  #############
+
+LB algorithm: roundrobin (weights 3:2:1)   requests: 600
+  app-1      300   50.0%  ####################
+  app-2      200   33.3%  #############
+  app-3      100   16.7%  #######
+
+LB algorithm: source (IP hash)   requests: 300
+  app-2      300  100.0%  ########################################
+
+LB algorithm: leastconn   requests: 300
+  app-1       96   32.0%  #############
+  app-2       97   32.3%  #############
+  app-3      107   35.7%  ##############
+```
+
+- **Round Robin** дає ідеально рівний розподіл 1:1:1 незалежно від стану вузлів.
+- **Weighted RR** відтворює ваги 3:2:1 точно: 50 % / 33 % / 17 %.
+- **IP Hash**: усі запити з однієї IP-адреси потрапляють на один вузол. Це sticky-поведінка без
+  cookie. Мінус: нерівномірність, коли клієнтів мало або багато з них за одним NAT. Для
+  stateless-сервісу така прив'язка не потрібна.
+- **Least Connections** на однорідних вузлах поводиться майже як RR (32/32/36 %). Різниця з'являється,
+  коли вузли або запити неоднакові (див. нижче).
+
+#### Експеримент з асиметричним навантаженням
+
+На `app-3` увімкнено синтетичну затримку 200 мс на кожен `/api`-запит (`APP3_DELAY_MS=200`, модель
+деградованого вузла: повільний диск, «шумний сусід», GC-пауза). Навантаження: k6, 30 VU, 30 с,
+`GET /api/v1/books/{id}` ([`load-tests/lb_experiment.js`](load-tests/lb_experiment.js)).
+
+| Метрика | Round Robin | Least Connections |
+|---|---|---|
+| **Throughput** | 409 req/s | **667 req/s (+63 %)** |
+| Avg latency | 73 ms | **45 ms (−38 %)** |
+| p50 latency | **5.6 ms** | 29 ms |
+| p95 latency | 211 ms | 206 ms |
+| p99 latency | **219 ms** | 249 ms |
+| Частка запитів на повільному `app-3` | 33.3 % (4118 з 12 354) | **6.7 %** (1334 з 20 058) |
+| Avg latency на `app-1` / `app-2` | 5.2 / 5.3 ms | 32.4 / 31.5 ms |
+| Avg latency на `app-3` | 208 ms | 224 ms |
+| Помилки | 0 % | 0 % |
+
+**Висновки:**
+- **Round Robin «сліпий»**: повільний вузол отримує ту саму третину трафіку, тож рівно третина
+  запитів чекає ≥ 200 мс. У моделі із замкненим циклом (VU чекає відповіді) третина віртуальних
+  користувачів постійно «застрягає» на `app-3`, а швидкі вузли недовантажені (6 мс на запит).
+  Звідси низький загальний throughput. p99 тут дорівнює затримці повільного вузла (218 мс).
+- **Least Connections** бачить, що на `app-3` накопичуються відкриті з'єднання, і відправляє туди
+  лише 6.7 % трафіку. Швидкі вузли беруть на себе більше роботи (з 5 до 32 мс через вищу утилізацію
+  CPU), але загальна пропускна здатність зростає на 63 %, а середня затримка падає на 38 %. p99
+  трохи зростає, бо запити, що все ж потрапили на `app-3`, конкурують там у черзі.
+- **Вибір для Libra:** `leastconn`, бо у сервісу дуже різна тривалість запитів (`GET /books/{id}` ≈
+  5 мс проти звіту `popular-books` чи логіну з PBKDF2 ≈ 100 мс). Повільний вузол, що деградує, але
+  ще проходить health check, автоматично отримує менше трафіку.
+
+### 8.4. Health Check та відмовостійкість
+
+**Endpoint-и** (розділ 7.2): `GET /health` (readiness) перевіряє з'єднання з PostgreSQL і
+сховищем сесій та повертає 503 при проблемі; `GET /health/live` (liveness) перевіряє лише процес.
+
+**Активна перевірка** (`option httpchk`): HAProxy кожні 2 с робить `GET /health`. Після 2 невдач
+вузол виключається з пулу (≤ 4 с), після 2 успішних перевірок повертається. Протягом
+`slowstart 10s` вага відновленого вузла плавно росте від 0 до 100 %, щоб холодний вузол не
+отримав одразу повну третину навантаження.
+
+**Пасивна перевірка** (`observe layer7` + `error-limit 10` + `on-error mark-down`): якщо реальні
+запити отримують 10 помилок поспіль (відмова з'єднання, 5xx), вузол виключається негайно, не
+чекаючи наступного активного опитування.
+
+**Повтор запиту на іншому вузлі** (`retries 2`, `option redispatch`, `retry-on conn-failure …`):
+запит, який не вдалося доставити, прозоро перенаправляється на інший вузол. L7-повтори
+(порожня відповідь, 502/503/504) дозволені тільки для GET/HEAD, тож POST ніколи не виконується
+двічі. Для безпечних повторів POST із боку клієнта є `Idempotency-Key` (лаба 2).
+
+**Degraded-вузол:** якщо в інстансу пропадає з'єднання з БД, `/health` повертає 503, і HAProxy
+виводить його з пулу, хоча процес живий.
+
+#### Симуляція аварії (k6, 30 VU, 25 с, RR, через `lb:8080`)
+
+```bash
+k6 run -e DURATION=25s load-tests/lb_experiment.js   # термінал 1
+docker compose stop app2                             # термінал 2, на ~7-й секунді
+docker compose start app2                            # на ~15-й секунді
+```
+
+| Сценарій | Запитів | Помилок 5xx / мережевих | Throughput | p99 |
+|---|---|---|---|---|
+| `docker compose stop app2` (SIGTERM, graceful) | 13 136 | **0 (0.00 %)** | 524 req/s | 189 ms |
+| `kill -9` (crash посеред обробки) | 12 692 | **1 (0.01 %)** | 507 req/s | 198 ms |
+
+Лог HAProxy при crash:
+
+```
+Server libra_pool/app2 is DOWN, reason: Health analyze, info: "Detected 10 consecutive errors,
+  last one was: L4 unsuccessful connection". 2 active and 0 backup servers left.
+Server libra_pool/app2 is UP, reason: Layer7 check passed, code: 200, check duration: 8ms.
+  3 active and 0 backup servers online.
+```
+
+- **Graceful stop:** Uvicorn отримує SIGTERM, перестає приймати нові з'єднання і дообробляє
+  поточні. Нові запити отримують `connection refused`, і HAProxy прозоро повторює їх на
+  `app1`/`app3`. Клієнт не бачить жодної помилки.
+- **Crash (`kill -9`):** пасивна перевірка виключила вузол за мілісекунди, раніше за активну.
+  Єдина помилка припала на запит, який уже обробляв вбитий процес, коли частина відповіді вже
+  була в мережі. Такий запит неможливо безпечно повторити на рівні балансувальника.
+- Після старту `app2` повернувся в пул автоматично (Layer7 check passed) і поступово отримав
+  трафік (slowstart).
+
+### 8.5. Scale-out експеримент: 1 / 2 / 3 інстанси
+
+k6, 50 VU, 20 с, `leastconn`, `GET /api/v1/books/{id}`. Зайві інстанси зупинялися через
+`docker compose stop`.
+
+| Інстансів | Throughput | Приріст | Scalability efficiency* | Avg | p50 | p95 | p99 | Помилки |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 312 req/s | 1.00× | 100 % | 159 ms | 157 ms | 285 ms | 392 ms | 0 % |
+| 2 | 627 req/s | **2.01×** | **100 %** | 79 ms | 70 ms | 148 ms | 218 ms | 0 % |
+| 3 | 597 req/s | 1.91× | 64 % | 83 ms | 60 ms | 218 ms | 370 ms | 0 % |
+
+\* efficiency = throughput(N) / (N × throughput(1)).
+
+![Scale-out](docs/lab3-scaleout.png)
+
+> **Середовище вимірювань:** стенд, де проводились виміри, має **2 vCPU / 8 GB RAM**, і на тих самих
+> ядрах працюють генератор навантаження, HAProxy, PostgreSQL і Redis. На вашому ПК абсолютні
+> цифри будуть іншими. Відтворити: `python load-tests/run_lab3.py` (див. розділ 10).
+
+Профіль CPU під час прогону з 3 інстансами (`top`, 50 VU):
+
+```
+%CPU  COMMAND
+56.2  uvicorn (app)     54.7  uvicorn (app)     26.5  uvicorn (app)
+14.1  k6                 7.2  haproxy            ~5   postgres (усі процеси)
+load average 3.95 на 2 ядрах; PostgreSQL: 30 з'єднань у стані idle
+```
+
+### 8.6. Системний аналіз: що стає наступним bottleneck
+
+1. **Перехід 1 → 2 інстанси дав лінійний приріст (2.01×, efficiency 100 %).** Один процес Python
+   обмежений одним ядром (GIL) і власним threadpool, тож при 50 VU черга всередині процесу
+   роздувала затримки (p50 157 мс). Другий процес задіяв друге ядро, і затримки впали вдвічі.
+2. **Третій інстанс погіршив результат**, бо в стенді лише 2 ядра: три процеси конкурують за CPU
+   (load average ≈ 4), додаються перемикання контексту. **Наступним обмеженням тут став CPU
+   хоста**, а не БД (PostgreSQL ≈ 5 % CPU, 30 idle-з'єднань) і не балансувальник (HAProxy ≈ 7 %).
+   Це класичне «масштабування на одному вузлі»: репліки додають паралелізм лише доти, доки є
+   вільні ядра.
+3. **У реальному розгортанні** (окремі хости для реплік) наступні обмеження в порядку появи:
+   - **Пул з'єднань БД / `max_connections`.** Кожен інстанс тримає до 15 з'єднань (10 + 5
+     overflow), а PostgreSQL за замовчуванням має `max_connections = 100`, тож уже на 7 інстансах
+     маємо 105 > 100 і помилки `too many clients`. Рішення: PgBouncer (transaction pooling).
+   - **Shared Storage Locks** на запис: видачі популярної книги серіалізуються на одному рядку
+     `books` (`SELECT … FOR UPDATE`, розділ 6, B2). Додавання інстансів не прискорює запис у
+     гарячий рядок, лише подовжує чергу блокувань.
+   - **CPU / I/O PostgreSQL** на важких читаннях (звіт, пошук з `ILIKE`). Рішення: кеш (лаба 4) і
+     read-репліки.
+   - **CPU балансувальника** стане проблемою останнім: HAProxy обробляє десятки тисяч req/s на
+     одному ядрі, у нас ≈ 7 % ядра на 600 req/s.
+
+### 8.7. Балансувальник як Single Point of Failure
+
+Зараз `lb` є єдиним контейнером. Якщо він впаде, система недоступна, хоча всі backend-вузли
+живі. Шляхи усунення:
+- **Keepalived + VRRP:** два HAProxy (active / standby) на різних хостах ділять одну віртуальну
+  IP-адресу (VIP). Standby щосекунди отримує VRRP-оголошення і при їх зникненні забирає VIP собі
+  (gratuitous ARP) за 1–3 с. Клієнти й DNS нічого не помічають.
+- **DNS Round Robin:** доменне ім'я має кілька A-записів (по одному на кожен LB). Це дешево, але
+  відмова виявляється повільно (кеш DNS / TTL), і клієнти, що закешували «мертву» IP-адресу,
+  отримують помилки.
+- **Хмарні керовані LB** (AWS ALB/NLB, GCP LB): відмовостійкість на рівні провайдера, anycast.
+- **Комбінація:** DNS → кілька пар Keepalived у різних зонах доступності.

@@ -1,0 +1,14 @@
+# Debug override: publishes every instance directly, bypassing the load
+# balancer. Needed only for the Lab 2 per-instance checks
+# (scripts/cross_instance_check.py, scripts/failover_check.py).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.direct.yml up -d
+#
+# In normal operation (Lab 3+) instances are reachable ONLY through lb:8080.
+services:
+  app1:
+    ports: ["8001:8000"]
+  app2:
+    ports: ["8002:8000"]
+  app3:
+    ports: ["8003:8000"]

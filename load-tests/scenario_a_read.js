@@ -1,0 +1,57 @@
+// Lab 5 - Scenario A: READ-INTENSIVE (catalogue browsing).
+// Resource profile: cache layer (Redis), DB reads on cache misses, app CPU
+// for JSON serialisation. Mix per iteration (weighted random):
+//   50 %  GET /api/v1/books/{id}                   - entity cache
+//   35 %  GET /api/v1/books?q=<word>&offset=<page>  - list/search cache
+//   15 %  GET /api/v1/reports/popular-books         - heavy aggregate, report cache
+//
+//   k6 run load-tests/scenario_a_read.js
+//   k6 run -e MODE=ramp load-tests/scenario_a_read.js          (live demo)
+import http from 'k6/http';
+import { check, sleep } from 'k6';
+import { Counter } from 'k6/metrics';
+import { BASE, SEARCH_WORDS, ensureBooks, pick } from './lib/data.js';
+import { META, buildOptions } from './lib/stages.js';
+import { makeSummary } from './lib/summary.js';
+
+const cacheResult = new Counter('cache_result');
+const THINK = Number(__ENV.THINK || 0);
+
+export const options = buildOptions({
+  'cache_result{x_cache:HIT}': ['count>=0'],
+  'cache_result{x_cache:MISS}': ['count>=0'],
+  'cache_result{x_cache:BYPASS}': ['count>=0'],
+  'cache_result{x_cache:DISABLED}': ['count>=0'],
+});
+
+export function setup() {
+  const books = ensureBooks();
+  const all = http.get(`${BASE}/api/v1/books?limit=100`).json('items').map((b) => b.id);
+  return { ids: books.concat(all) };
+}
+
+function track(res) {
+  check(res, { 'status 200': (r) => r.status === 200 });
+  const xc = res.headers['X-Cache'];
+  if (xc) cacheResult.add(1, { x_cache: xc });
+}
+
+export default function (data) {
+  const roll = Math.random();
+  if (roll < 0.5) {
+    track(http.get(`${BASE}/api/v1/books/${pick(data.ids)}`, { tags: { name: 'GET /books/{id}' } }));
+  } else if (roll < 0.85) {
+    const q = pick(SEARCH_WORDS);
+    const offset = 20 * Math.floor(Math.random() * 3);
+    track(http.get(`${BASE}/api/v1/books?q=${q}&limit=20&offset=${offset}`,
+      { tags: { name: 'GET /books?q=' } }));
+  } else {
+    const days = pick([7, 30, 90]);
+    track(http.get(`${BASE}/api/v1/reports/popular-books?days=${days}&limit=10`,
+      { tags: { name: 'GET /reports/popular-books' } }));
+  }
+  if (THINK) sleep(THINK);
+}
+
+export const handleSummary = makeSummary(`Scenario A - read-intensive (${__ENV.LABEL || ''})`,
+  { ...META, scenario: 'A' });
