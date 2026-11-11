@@ -26,6 +26,10 @@ git clone <repo-url> libra && cd libra
 docker compose up --build -d      # db + redis + cache -> migrate -> app1..app3 -> lb
 ```
 
+Або одним кліком: відкрийте `start.py` у VS Code і натисніть ▶ Run (чи `python start.py`). Скрипт
+сам запустить Docker Desktop, збере й підніме стек, дочекається `/health`, наповнить демо-даними
+й пройде по API. Зупинка: `python start.py --down`.
+
 Клієнт бачить **лише балансувальник**: інстанси не мають опублікованих портів.
 
 | Що | URL |
