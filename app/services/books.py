@@ -1,10 +1,3 @@
-"""Catalogue (books) business logic.
-
-Lab 4: catalogue reads use the distributed cache (Cache-Aside):
-  libra:book:<id>:v<book_ver>                     TTL 300 s   book card
-  libra:books:list:<params_hash>:v<list_ver>      TTL  60 s   pages / search
-Every write bumps the relevant version counters right after COMMIT.
-"""
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
@@ -23,12 +16,8 @@ def book_version(book_id: int) -> str:
 
 
 def invalidate_book(book_id: int) -> None:
-    """A book changed: its card, every catalogue page and the report (titles,
-    availability) must be re-read."""
     cache.invalidate(book_version(book_id), LIST_VERSION, REPORT_VERSION)
 
-
-# ---------------------------------------------------------------- reads
 
 def get_book(db: Session, book_id: int) -> Book:
     book = db.get(Book, book_id)
@@ -72,8 +61,6 @@ def list_books(
 def list_books_cached(
     db: Session, q: str | None, author: str | None, available_only: bool, limit: int, offset: int
 ) -> tuple[Page[BookOut], str]:
-    # Normalise params so that "Data ", "data" and "DATA" share one cache entry
-    # (ILIKE is case-insensitive anyway).
     q_norm = (q or "").strip().lower() or None
     author_norm = (author or "").strip() or None
     h = cache.params_hash(q=q_norm, author=author_norm, available_only=available_only,
@@ -94,8 +81,6 @@ def list_books_cached(
     )
 
 
-# ---------------------------------------------------------------- writes
-
 def create_book(db: Session, data: BookCreate) -> Book:
     if db.scalar(select(Book.id).where(Book.isbn == data.isbn)):
         raise Conflict(f"Book with ISBN {data.isbn} already exists")
@@ -103,12 +88,11 @@ def create_book(db: Session, data: BookCreate) -> Book:
     db.add(book)
     db.commit()
     db.refresh(book)
-    cache.invalidate(LIST_VERSION)  # new book appears in pages / search results
+    cache.invalidate(LIST_VERSION)
     return book
 
 
 def update_book(db: Session, book_id: int, data: BookUpdate) -> Book:
-    # Row lock: total/available copies must change atomically with loans.
     book = db.scalar(select(Book).where(Book.id == book_id).with_for_update())
     if book is None:
         raise NotFound(f"Book {book_id} not found")

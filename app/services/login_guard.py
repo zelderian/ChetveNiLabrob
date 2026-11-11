@@ -1,8 +1,3 @@
-"""Brute-force protection with a shared counter in Redis.
-
-A process-local counter would let an attacker get N x limit attempts by
-spreading requests across N instances; a Redis counter is global.
-"""
 from app.config import settings
 from app.errors import DomainError
 from app.redis_client import redis_client

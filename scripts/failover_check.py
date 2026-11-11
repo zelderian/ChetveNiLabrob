@@ -46,7 +46,7 @@ stats = Counter()
 def call(method, path, body=None, headers=None, start=0):
     """Try nodes starting from `start`; fail over on network errors / 5xx."""
     nodes = args.nodes[start:] + args.nodes[:start]
-    for attempt, base in enumerate(nodes * 2):  # two rounds over all nodes
+    for attempt, base in enumerate(nodes * 2):
         try:
             r = request(method, base + path, body, headers, timeout=5)
             if r.status < 500:
@@ -55,7 +55,7 @@ def call(method, path, body=None, headers=None, start=0):
                     if attempt:
                         stats["failovers"] += 1
                 return r, attempt > 0
-        except (OSError, http.client.HTTPException):  # refused / reset / cut-off response
+        except (OSError, http.client.HTTPException):
             pass
         time.sleep(0.2)
     raise RuntimeError(f"all nodes failed for {method} {path}")
@@ -65,7 +65,6 @@ def any_node(method, path, body=None, headers=None):
     return call(method, path, body, headers)[0]
 
 
-# ---------- setup ----------
 run = uuid.uuid4().hex[:8]
 book = any_node("POST", "/api/v1/books", {
     "isbn": f"979{int(time.time()) % 10**10:010d}", "title": f"Failover book {run}",
@@ -99,7 +98,6 @@ def worker(c):
 
             r, retried = call("POST", f"/api/v1/loans/{c['active']}/return", headers=c["auth"],
                               start=rnd.randrange(len(args.nodes)))
-            # 409 after a failover = the first attempt was committed before the node died.
             if r.status == 200 or (retried and r.status == 409):
                 c["returned"] += 1
                 c["active"] = None
@@ -129,7 +127,6 @@ stop.set()
 for t in threads:
     t.join(timeout=15)
 
-# ---------- verification against the server ----------
 print(f"\nrequests handled per instance: {dict(handled_by)}")
 print(f"client stats: {dict(stats) or 'no errors'}")
 problems = 0

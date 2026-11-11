@@ -1,13 +1,3 @@
-// Lab 5 - Scenario B: WRITE-INTENSIVE.
-// Resource profile: DB transactions, row locks (SELECT ... FOR UPDATE),
-// WAL / fsync I/O, cache invalidations. Every VU is its own authenticated member.
-// Per iteration:
-//   75 %  borrow a random book (POST /loans + Idempotency-Key) and return it
-//         (POST /loans/{id}/return)  -> 2 transactional writes, 2 row locks each
-//   25 %  create a new book (POST /books)  -> plain INSERT
-// 409 is a legitimate business answer (e.g. limit reached) and is not an error.
-//
-//   k6 run load-tests/scenario_b_write.js
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Rate } from 'k6/metrics';
@@ -44,7 +34,6 @@ export default function (data) {
       check(ret, { 'returned 200': (x) => x.status === 200 });
     }
   } else {
-    // 13-digit ISBN unique per run/VU/iteration: 9 + run(4) + vu(3) + iter(5)
     const isbn = `9${data.run}${String(__VU).padStart(3, '0')}${String(__ITER % 100000).padStart(5, '0')}`;
     const r = http.post(`${BASE}/api/v1/books`, JSON.stringify({
       isbn, title: `Write Test ${isbn}`, author: 'k6', published_year: 2026, total_copies: 3,

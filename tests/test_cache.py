@@ -1,4 +1,3 @@
-"""Lab 4: Cache-Aside, key design, invalidation and fallback."""
 import dataclasses
 
 import pytest
@@ -10,7 +9,6 @@ from app.cache import cache_client
 
 @pytest.fixture
 def cache_down(monkeypatch):
-    """Points the cache client at a port where nothing listens."""
     dead = redis.Redis(host="127.0.0.1", port=1, socket_timeout=0.2, socket_connect_timeout=0.2,
                        decode_responses=True)
     monkeypatch.setattr(cache, "cache_client", dead)
@@ -31,12 +29,12 @@ def test_book_hit_miss(client, make_book):
 def test_key_design_no_collisions_and_normalisation(client, make_book):
     make_book()
     a = client.get("/api/v1/books?q=Clean&limit=5")
-    b = client.get("/api/v1/books?q=clean%20&limit=5")       # same after normalisation
-    c = client.get("/api/v1/books?q=clean&limit=6")           # different params -> other key
+    b = client.get("/api/v1/books?q=clean%20&limit=5")
+    c = client.get("/api/v1/books?q=clean&limit=6")
     assert (a.headers["X-Cache"], b.headers["X-Cache"], c.headers["X-Cache"]) == ("MISS", "HIT", "MISS")
     keys = sorted(k for k in cache_client.scan_iter("libra:books:list:*"))
     assert len(keys) == 2
-    assert all(len(k.split(":")[3]) == 16 for k in keys)  # libra:books:list:<hash16>:v<ver>
+    assert all(len(k.split(":")[3]) == 16 for k in keys)
 
 
 def test_update_invalidates_entity_and_lists(client, make_book):
@@ -59,7 +57,7 @@ def test_create_and_delete_invalidate_lists(client, make_book):
     assert r.headers["X-Cache"] == "MISS" and r.json()["total"] == 2
     client.delete(f"/api/v1/books/{b2['id']}")
     assert client.get("/api/v1/books").json()["total"] == 1
-    assert client.get(f"/api/v1/books/{b2['id']}").status_code == 404  # no stale entity
+    assert client.get(f"/api/v1/books/{b2['id']}").status_code == 404
 
 
 def test_borrow_and_return_invalidate_availability(client, auth, make_book):
@@ -73,12 +71,10 @@ def test_borrow_and_return_invalidate_availability(client, auth, make_book):
 
 
 def test_stale_writer_race_is_harmless(client, make_book):
-    """A reader that stores an old value AFTER the writer's invalidation writes
-    it under the old version key - nobody reads it any more."""
     book = make_book()
-    client.get(f"/api/v1/books/{book['id']}")                       # cached as v0
+    client.get(f"/api/v1/books/{book['id']}")
     client.patch(f"/api/v1/books/{book['id']}", json={"title": "New"})
-    cache_client.set(f"libra:book:{book['id']}:v0", '{"stale": true}')  # late stale write
+    cache_client.set(f"libra:book:{book['id']}:v0", '{"stale": true}')
     assert client.get(f"/api/v1/books/{book['id']}").json()["title"] == "New"
 
 
@@ -96,7 +92,6 @@ def test_fallback_when_cache_is_down(client, make_book, cache_down):
     assert r.json()["id"] == book["id"]
     assert client.get("/api/v1/books").headers["X-Cache"] == "BYPASS"
     assert client.get("/api/v1/reports/popular-books").headers["X-Cache"] == "BYPASS"
-    # writes still work (invalidation failures are tolerated)
     assert client.patch(f"/api/v1/books/{book['id']}", json={"title": "X"}).status_code == 200
     health = client.get("/health")
     assert health.status_code == 200 and health.json()["cache"].startswith("unavailable")

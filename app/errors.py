@@ -1,4 +1,3 @@
-"""Domain exceptions and their mapping to HTTP responses."""
 import logging
 
 import redis
@@ -61,14 +60,11 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(IntegrityError)
     async def _integrity(_: Request, exc: IntegrityError):
-        # Unique / FK / CHECK violations that slipped past service checks
-        # (e.g. two concurrent inserts of the same e-mail).
         log.warning("integrity error: %s", exc.orig)
         return _error(409, "conflict", "Operation violates a data integrity constraint")
 
     @app.exception_handler(redis.RedisError)
     async def _redis(_: Request, exc: redis.RedisError):
-        # Sessions live in Redis: without it we cannot authenticate anyone.
         log.error("redis unavailable: %s", exc)
         return _error(503, "dependency_unavailable", "Session store is temporarily unavailable")
 

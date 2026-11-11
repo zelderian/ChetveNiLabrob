@@ -1,12 +1,3 @@
-"""Login sessions stored in Redis (Lab 2).
-
-Lab 1 kept sessions in a process-local dict, so a token issued by one
-instance was unknown to the others and was lost on restart. Now any
-instance can resolve any token.
-
-Key:   session:<sha256(token)>  ->  member_id      (TTL = session lifetime)
-Only a hash of the token is stored, so a Redis dump does not leak tokens.
-"""
 import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone

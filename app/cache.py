@@ -1,31 +1,3 @@
-"""Distributed cache layer (Lab 4) - Cache-Aside (lazy loading) over Redis.
-
-Read path (cache_aside):
-    1. key lookup in Redis                    -> HIT: return without touching the DB
-    2. MISS: load from PostgreSQL, SET key with TTL (+-10 % jitter), return
-    Redis unavailable -> BYPASS: read straight from the DB (graceful degradation)
-    CACHE_ENABLED=false -> DISABLED (used for Lab 5 comparisons)
-
-Key design:  libra:<entity>:<id | params_hash>:v<version>
-    * params_hash = sha256 of the canonical (sorted, normalised) query params,
-      so equal requests map to one key and different ones never collide;
-    * version = value of a version counter libra:ver:<name>. Writers INCR the
-      counter after COMMIT; all old keys become unreachable at once on every
-      instance and simply expire by TTL. This also closes the classic race
-      "reader loads old row -> writer commits+deletes -> reader SETs stale
-      value": the stale value lands under the OLD version key nobody reads.
-
-Stampede (thundering herd) protection: on a miss only the request that wins
-SET NX on <key>:lock queries the DB; concurrent ones wait up to ~200 ms for
-the value to appear, then fall back to the DB themselves.
-
-Avalanche protection: TTL jitter, so keys created together don't expire together.
-
-Circuit breaker: after a Redis error the cache is skipped for
-CACHE_BREAKER_SECONDS, so a dead cache costs one timeout, not one per request.
-The breaker and hit/miss counters are process-local *ephemeral* data
-(category "Local Safe" from Lab 2): losing them changes nothing functionally.
-"""
 import hashlib
 import json
 import logging
@@ -48,7 +20,7 @@ PREFIX = "libra"
 cache_client: redis.Redis = redis.Redis.from_url(
     settings.cache_url,
     decode_responses=True,
-    socket_timeout=0.3,          # a cache must be fast or be skipped
+    socket_timeout=0.3,
     socket_connect_timeout=0.3,
     retry_on_timeout=False,
 )
@@ -95,7 +67,6 @@ def cache_aside(
     load: Callable[[str], T],
     versions: tuple[str, ...] = (),
 ) -> tuple[T, str]:
-    """Returns (value, status); status is HIT | MISS | BYPASS | DISABLED."""
     if not settings.cache_enabled:
         return loader(), "DISABLED"
     if not _available():
@@ -116,7 +87,7 @@ def cache_aside(
         lock_key = f"{key}:lock"
         have_lock = bool(cache_client.set(lock_key, settings.instance_id, nx=True,
                                           px=settings.cache_lock_ms))
-        if not have_lock:  # another request is already loading this key
+        if not have_lock:
             for _ in range(10):
                 time.sleep(0.02)
                 cached = cache_client.get(key)
@@ -128,7 +99,7 @@ def cache_aside(
         _count("bypass")
         return loader(), "BYPASS"
 
-    value = loader()  # exceptions (e.g. NotFound) propagate; nothing is cached
+    value = loader()
     try:
         cache_client.set(key, dump(value), ex=_ttl(ttl))
         if have_lock:
@@ -141,7 +112,6 @@ def cache_aside(
 
 
 def invalidate(*versions: str) -> None:
-    """Called AFTER a successful COMMIT of a write: bumps version counters."""
     if not settings.cache_enabled:
         return
     try:
@@ -152,8 +122,6 @@ def invalidate(*versions: str) -> None:
         _count("invalidations")
         log.debug("cache INVALIDATE %s", versions)
     except redis.RedisError as exc:
-        # Cache unreachable: entries are unreachable too; anything left is
-        # bounded by its TTL (documented trade-off).
         _trip(exc)
 
 

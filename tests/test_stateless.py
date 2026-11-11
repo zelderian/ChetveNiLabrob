@@ -1,4 +1,3 @@
-"""Lab 2: behaviour that relies on externalised (shared) state."""
 import importlib
 import threading
 
@@ -19,11 +18,9 @@ def test_health_reports_dependencies(client):
 
 
 def test_session_lives_in_redis_not_in_process(client, auth):
-    # Simulate a *different* process: re-import the module (fresh globals).
     importlib.reload(sessions)
     assert client.get("/api/v1/me", headers=auth).status_code == 200
     assert any(k.startswith("session:") for k in redis_client.scan_iter("session:*"))
-    # Raw token is never stored, only its hash.
     token = auth["Authorization"].split()[1]
     assert redis_client.get(f"session:{token}") is None
 
@@ -44,7 +41,6 @@ def test_idempotent_borrow(client, auth, make_book):
 
 
 def test_concurrent_borrows_never_oversell(client, make_book):
-    """20 members race for 5 copies: exactly 5 succeed (DB row locks, no app lock)."""
     book = make_book(copies=5)
     tokens = []
     for i in range(20):
@@ -82,7 +78,7 @@ def test_report_cache_is_shared_and_invalidated(client, auth, make_book):
     r2 = client.get("/api/v1/reports/popular-books?days=7")
     assert (r1.headers["X-Cache"], r2.headers["X-Cache"]) == ("MISS", "HIT")
 
-    client.post("/api/v1/loans", json={"book_id": b2["id"]}, headers=auth)  # bumps version
+    client.post("/api/v1/loans", json={"book_id": b2["id"]}, headers=auth)
     r3 = client.get("/api/v1/reports/popular-books?days=7")
     assert r3.headers["X-Cache"] == "MISS"
     assert {i["book_id"] for i in r3.json()["items"]} == {b1["id"], b2["id"]}

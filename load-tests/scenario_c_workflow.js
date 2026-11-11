@@ -1,15 +1,3 @@
-// Lab 5 - Scenario C: COMPLEX WORKFLOW (end-to-end reader session).
-// One iteration = one full user journey, mixing CPU-heavy auth, cached reads,
-// business checks and transactional writes:
-//   1. POST /auth/login             - PBKDF2 (200k iterations): CPU-bound
-//   2. GET  /books?q=<word>         - catalogue search (cache)
-//   3. GET  /books/{id}             - book card (cache)
-//   4. POST /loans                  - business rules + row locks + INSERT
-//   5. GET  /me/loans?active=true   - session + DB read
-//   6. POST /loans/{id}/return      - fine calculation + UPDATE
-//   7. POST /auth/logout            - session removal
-//
-//   k6 run load-tests/scenario_c_workflow.js
 import http from 'k6/http';
 import { check, group, sleep } from 'k6';
 import { Trend } from 'k6/metrics';

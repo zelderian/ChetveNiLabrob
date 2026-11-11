@@ -1,5 +1,3 @@
-// Test-data preparation (runs once, in k6 setup()).
-// Idempotent: re-running reuses the same books / members.
 import http from 'k6/http';
 
 export const BASE = __ENV.BASE_URL || 'http://localhost:8080';
@@ -14,7 +12,6 @@ export function memberEmail(i) {
   return `lt${i}@load.test`;
 }
 
-// 100 books with 1000 copies each: writes never fail because of stock.
 export function ensureBooks() {
   const reqs = [];
   for (let i = 1; i <= N_BOOKS; i++) {
@@ -53,7 +50,6 @@ export function login(i, params = {}) {
   return r.status === 200 ? r.json('access_token') : null;
 }
 
-// Logs every member in once (parallel batches); returns tokens[i-1].
 export function loginAll(n) {
   const tokens = [];
   for (let start = 1; start <= n; start += 20) {
@@ -67,7 +63,6 @@ export function loginAll(n) {
   return tokens;
 }
 
-// Finishes loans left active by an interrupted earlier run.
 export function cleanupActiveLoans(tokens) {
   for (const t of tokens) {
     const auth = { headers: { Authorization: `Bearer ${t}` } };

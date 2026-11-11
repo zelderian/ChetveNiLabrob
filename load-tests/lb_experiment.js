@@ -1,11 +1,3 @@
-// Lab 3 - load balancing experiments through the load balancer.
-// Constant concurrency; latency and hit count are broken down per instance.
-//
-//   k6 run load-tests/lb_experiment.js
-//   k6 run -e VUS=30 -e DURATION=30s -e BASE_URL=http://localhost:8080 load-tests/lb_experiment.js
-//
-// Used for: algorithm comparison under a slow node (APP3_DELAY_MS=200),
-// failover (stop a container during the run) and 1/2/3-instance scale-out.
 import http from 'k6/http';
 import { check } from 'k6';
 import { Counter, Trend } from 'k6/metrics';
@@ -19,7 +11,6 @@ const latency = new Trend('instance_latency', true);
 
 const thresholds = { http_req_failed: ['rate<0.01'] };
 for (const i of INSTANCES) {
-  // "always true" thresholds force k6 to report a sub-metric per instance
   thresholds[`instance_hits{instance:${i}}`] = ['count>=0'];
   thresholds[`instance_latency{instance:${i}}`] = ['max>=0'];
 }

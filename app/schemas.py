@@ -16,8 +16,6 @@ class Page(BaseModel, Generic[T]):
     offset: int
 
 
-# ---------- Books ----------
-
 class BookBase(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     author: str = Field(min_length=1, max_length=200)
@@ -63,8 +61,6 @@ class BookOut(BookBase):
     created_at: datetime
 
 
-# ---------- Members ----------
-
 class MemberCreate(BaseModel):
     full_name: str = Field(min_length=1, max_length=200)
     email: str = Field(pattern=EMAIL_PATTERN, max_length=254)
@@ -92,8 +88,6 @@ class MemberOut(BaseModel):
     created_at: datetime
 
 
-# ---------- Auth ----------
-
 class LoginRequest(BaseModel):
     email: str = Field(pattern=EMAIL_PATTERN)
     password: str = Field(min_length=1)
@@ -104,8 +98,6 @@ class TokenOut(BaseModel):
     token_type: str = "bearer"
     expires_at: datetime
 
-
-# ---------- Loans ----------
 
 class LoanCreate(BaseModel):
     book_id: int = Field(ge=1)
@@ -125,8 +117,6 @@ class LoanOut(BaseModel):
     fine_amount: Decimal
     is_overdue: bool
 
-
-# ---------- Reports ----------
 
 class PopularBook(BaseModel):
     book_id: int

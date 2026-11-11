@@ -33,8 +33,6 @@ def readiness():
         checks["redis"] = f"error: {str(exc)[:120]}"
 
     healthy = all(v == "ok" for v in checks.values())
-    # The cache is optional: without it the node still serves (from the DB),
-    # so it is reported but does NOT make the node unready.
     body = {"status": "ok" if healthy else "degraded", "instance": settings.instance_id, **checks,
             "cache": cache.ping()}
     return JSONResponse(status_code=200 if healthy else 503, content=body)

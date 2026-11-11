@@ -1,12 +1,3 @@
-// Lab 5 - Scenario A: READ-INTENSIVE (catalogue browsing).
-// Resource profile: cache layer (Redis), DB reads on cache misses, app CPU
-// for JSON serialisation. Mix per iteration (weighted random):
-//   50 %  GET /api/v1/books/{id}                   - entity cache
-//   35 %  GET /api/v1/books?q=<word>&offset=<page>  - list/search cache
-//   15 %  GET /api/v1/reports/popular-books         - heavy aggregate, report cache
-//
-//   k6 run load-tests/scenario_a_read.js
-//   k6 run -e MODE=ramp load-tests/scenario_a_read.js          (live demo)
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Counter } from 'k6/metrics';

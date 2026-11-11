@@ -35,7 +35,7 @@ if "slow" in parts:
     compose("up", "-d", "--no-deps", "app3", env={"APP3_DELAY_MS": "200"})
     for algo in ("roundrobin", "leastconn"):
         lb(algo)
-        time.sleep(12)  # let slowstart finish for app3
+        time.sleep(12)
         k6("lb_experiment.js", f"lab3/slow_{algo}.json",
            {"VUS": 30, "DURATION": "30s", "LABEL": f"slow app-3 +200ms, {algo}"})
     compose("up", "-d", "--no-deps", "app3", env={"APP3_DELAY_MS": "0"})

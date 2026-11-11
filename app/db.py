@@ -15,7 +15,6 @@ SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 
 def get_db() -> Iterator[Session]:
-    """FastAPI dependency: one DB session per request, always closed."""
     db = SessionLocal()
     try:
         yield db

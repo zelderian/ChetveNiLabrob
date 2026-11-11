@@ -72,13 +72,13 @@ def measured(run: str, scenario: str, label: str, extra_env: dict | None = None)
 
 def set_pool(n: int, cache: bool = True) -> None:
     env = {"CACHE_ENABLED": "true" if cache else "false"}
-    compose("up", "-d", "--no-deps", "app1", "app2", "app3", env=env)  # recreate if env changed
+    compose("up", "-d", "--no-deps", "app1", "app2", "app3", env=env)
     if n < 3:
         compose("stop", *[f"app{i}" for i in range(n + 1, 4)])
     compose("up", "-d", "--no-deps", "lb", env={"LB_ALGO": "leastconn"})
     time.sleep(3)
     wait_pool({f"app{i}" for i in range(1, n + 1)})
-    time.sleep(10)  # slowstart
+    time.sleep(10)
 
 
 def environment_spec() -> None:

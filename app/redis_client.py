@@ -1,8 +1,3 @@
-"""Shared Redis connection (centralised store for sessions, cache, counters).
-
-The client object only holds a connection pool - a per-process *resource*,
-not application state: every instance talks to the same Redis server.
-"""
 import redis
 
 from app.config import settings

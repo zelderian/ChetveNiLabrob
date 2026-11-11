@@ -39,7 +39,6 @@ def show(label, r, ms):
           f"instance: {r.instance:<6} {ms:7.1f} ms")
 
 
-# a dedicated book for the demo
 isbn = f"978{int(time.time() * 1000) % 10**10:010d}"
 book = request("POST", BASE + "/api/v1/books", {"isbn": isbn, "title": "Cache Demo Book",
                                                "author": "Redis", "total_copies": 3}).json()
@@ -61,7 +60,6 @@ rows = {}
 for label, path in paths.items():
     cold, hot = [], []
     for i in range(args.rounds):
-        # PATCH invalidates the book card, every catalogue page and the report
         request("PATCH", f"{BASE}/api/v1/books/{bid}", {"published_year": 2000 + i % 20})
         r, ms = get(path)
         if r.headers.get("X-Cache") == "MISS":
@@ -102,6 +100,6 @@ if args.fallback:
     print(f"  /health -> status={h['status']} cache={h['cache']!r}")
     print("  starting the cache container again")
     subprocess.run(["docker", "compose", "start", "cache"], cwd=ROOT, check=False)
-    time.sleep(7)  # circuit breaker cooldown (5 s) + container start
+    time.sleep(7)
     show("GET book card (cache back, cold)", *get(path))
     show("GET book card (cache back, hot)", *get(path))

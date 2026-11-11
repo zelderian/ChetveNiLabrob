@@ -11,8 +11,6 @@ def test_health(client):
     assert r.json()["status"] == "ok"
 
 
-# ---------- books ----------
-
 def test_book_crud(client, make_book):
     book = make_book(copies=3)
     assert book["available_copies"] == 3
@@ -41,13 +39,11 @@ def test_book_validation_and_duplicates(client, make_book):
     assert r.status_code == 409
 
 
-# ---------- members & auth ----------
-
 def test_member_and_login(client, member, auth):
     assert "password" not in member and "password_hash" not in member
     r = client.post("/api/v1/members", json={"full_name": "x", "email": "IVAN@example.com",
                                              "password": "12345678"})
-    assert r.status_code == 409  # e-mails are case-insensitive
+    assert r.status_code == 409
 
     r = client.get("/api/v1/me", headers=auth)
     assert r.status_code == 200 and r.json()["id"] == member["id"]
@@ -63,8 +59,6 @@ def test_requires_auth(client):
     assert client.post("/api/v1/loans", json={"book_id": 1}).status_code == 401
 
 
-# ---------- loans (business logic) ----------
-
 def test_borrow_and_return(client, auth, make_book):
     book = make_book(copies=1)
     r = client.post("/api/v1/loans", json={"book_id": book["id"], "days": 7}, headers=auth)
@@ -72,7 +66,6 @@ def test_borrow_and_return(client, auth, make_book):
     loan = r.json()
     assert client.get(f"/api/v1/books/{book['id']}").json()["available_copies"] == 0
 
-    # no copies left
     r = client.post("/api/v1/loans", json={"book_id": book["id"]}, headers=auth)
     assert r.status_code == 409
 
@@ -81,7 +74,6 @@ def test_borrow_and_return(client, auth, make_book):
     assert r.json()["fine_amount"] == "0.00"
     assert client.get(f"/api/v1/books/{book['id']}").json()["available_copies"] == 1
 
-    # double return
     assert client.post(f"/api/v1/loans/{loan['id']}/return", headers=auth).status_code == 409
 
 
@@ -107,7 +99,7 @@ def test_overdue_fine(client, auth, make_book):
             {"d": datetime.now(timezone.utc) - timedelta(days=3, hours=1), "id": loan["id"]},
         )
     r = client.post(f"/api/v1/loans/{loan['id']}/return", headers=auth)
-    assert r.json()["fine_amount"] == "20.00"  # 4 started days * 5.00
+    assert r.json()["fine_amount"] == "20.00"
 
 
 def test_cannot_delete_with_history(client, member, auth, make_book):
@@ -124,8 +116,6 @@ def test_cannot_shrink_below_on_loan(client, auth, make_book):
     r = client.patch(f"/api/v1/books/{book['id']}", json={"total_copies": 5})
     assert r.json()["available_copies"] == 4
 
-
-# ---------- reports ----------
 
 def test_popular_books_report(client, auth, make_book):
     b1, b2 = make_book(), make_book()

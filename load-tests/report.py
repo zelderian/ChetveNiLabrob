@@ -20,7 +20,6 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RES = os.path.join(ROOT, "load-tests", "results")
 DOCS = os.path.join(ROOT, "docs")
 
-# Categorical palette (fixed order, validated for colour-vision deficiency).
 C = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
 INK, INK2, GRID = "#0b0b0b", "#52514e", "#e4e3df"
 
@@ -97,7 +96,6 @@ STAGE_COLS = [("VUs", "vus", str), ("Throughput (RPS)", "rps", lambda v: f"{v:.0
 
 
 def label_end(ax, xs, ys, text, color):
-    # nudge the label vertically if it would collide with one already placed
     placed = getattr(ax, "_end_labels", [])
     lo, hi = ax.get_ylim() if ax.get_yscale() == "linear" else (0, 0)
     span = (hi - lo) or max(abs(ys[-1]), 1)
@@ -134,7 +132,6 @@ def save(fig, name):
     print("chart:", os.path.relpath(path, ROOT))
 
 
-# --------------------------------------------------------------------- Lab 3
 def lab3():
     d = os.path.join(RES, "lab3")
     out = ["# Lab 3 - results\n"]
@@ -182,7 +179,6 @@ def lab3():
     write(os.path.join(d, "report.md"), out)
 
 
-# --------------------------------------------------------------------- Lab 5
 SCEN = {"A": "Scenario A - read-intensive", "B": "Scenario B - write-intensive",
         "C": "Scenario C - complex workflow"}
 
@@ -209,7 +205,6 @@ def lab5():
                        f"{json.dumps(load(dbp), indent=1)}\n```")
     write(os.path.join(base, "report.md"), out)
 
-    # 1) baseline: throughput + latency per scenario
     bl = runs.get("baseline", {})
     names = {"A": "scenario_a_read", "B": "scenario_b_write", "C": "scenario_c_workflow"}
     if bl:
@@ -246,7 +241,6 @@ def lab5():
             fig_legend(fig, ax)
             save(fig, f"lab5-latency-{letter.lower()}.png")
 
-    # 2) scaling: scenario A with 1 / 2 / 3 instances
     scale_runs = {n: runs.get(f"scale_{n}", {}).get("scenario_a_read") for n in (1, 2)}
     scale_runs[3] = bl.get("scenario_a_read")
     sc = [(n, d) for n, d in scale_runs.items() if d]
@@ -267,7 +261,6 @@ def lab5():
         fig.suptitle("Lab 5 - scaling impact, scenario A", fontsize=11, color=INK2)
         save(fig, "lab5-scaling.png")
 
-    # 3) caching: scenario A cache disabled vs enabled
     if "scenario_a_read" in runs.get("no_cache", {}) and "scenario_a_read" in bl:
         fig, axes = plt.subplots(1, 2, figsize=(11, 3.8))
         for i, (label, data) in enumerate((("cache enabled (warm)", bl["scenario_a_read"]),

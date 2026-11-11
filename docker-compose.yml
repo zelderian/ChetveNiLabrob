@@ -1,18 +1,5 @@
 name: libra
 
-# ---------------------------------------------------------------------------
-# Topology (Lab 3):
-#   client --> lb (HAProxy, :8080 - the ONLY published API port)
-#                 --> app1 | app2 | app3   (private network, no published ports)
-#                       --> db (PostgreSQL)   --> redis (sessions)   --> cache (Lab 4)
-#
-# Switch the balancing algorithm (recreates only the lb container):
-#   LB_ALGO=leastconn docker compose up -d lb          (bash / Git Bash)
-#   $env:LB_ALGO="leastconn"; docker compose up -d lb  (PowerShell)
-# Values: roundrobin | leastconn | source | random. Weights: APP1_WEIGHT..APP3_WEIGHT
-# Slow-node experiment: APP3_DELAY_MS=200 docker compose up -d app3
-# ---------------------------------------------------------------------------
-
 x-app: &app
   build: .
   image: libra-app:latest
@@ -21,8 +8,6 @@ x-app: &app
     REDIS_URL: redis://redis:6379/0
     CACHE_URL: redis://cache:6379/0
     CACHE_ENABLED: ${CACHE_ENABLED:-true}
-  # NB: no depends_on "cache" - the cache is optional, instances start and
-  # serve (from the DB) even when it is down.
   depends_on:
     migrate:
       condition: service_completed_successfully
@@ -30,9 +15,7 @@ x-app: &app
       condition: service_healthy
   networks: [backend]
   restart: unless-stopped
-  stop_grace_period: 15s       # SIGTERM -> uvicorn finishes in-flight requests
-  # Every replica gets the same, fixed share of the host - makes 1/2/3-instance
-  # comparisons fair (Lab 3 scale-out, Lab 5 baseline).
+  stop_grace_period: 15s
   cpus: 1.0
   mem_limit: 512m
 
@@ -47,8 +30,8 @@ services:
       APP2_WEIGHT: ${APP2_WEIGHT:-1}
       APP3_WEIGHT: ${APP3_WEIGHT:-1}
     ports:
-      - "8080:8080"            # single entry point for clients
-      - "8404:8404"            # HAProxy stats dashboard
+      - "8080:8080"
+      - "8404:8404"
     depends_on: [app1, app2, app3]
     networks: [backend]
     restart: unless-stopped
@@ -90,7 +73,6 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # Durable shared store: sessions + login counters (AOF persistence).
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
@@ -104,9 +86,6 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # Lab 4 - distributed cache. Disposable by design: no persistence, bounded
-  # memory, LFU eviction among keys with a TTL (version counters have no TTL
-  # and are therefore never evicted). Demo: docker compose stop cache
   cache:
     image: redis:7-alpine
     command: ["redis-server", "--save", "", "--appendonly", "no",
@@ -119,10 +98,6 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # Load generator (Lab 3/5) - only started on demand:
-  #   docker compose --profile loadtest run --rm k6 run /load-tests/lb_experiment.js
-  # Runs in its own container on the private network, so it reaches the system
-  # exactly like an external client does: through lb:8080.
   k6:
     image: grafana/k6:1.4.2
     profiles: ["loadtest"]

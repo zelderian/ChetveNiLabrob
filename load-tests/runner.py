@@ -44,7 +44,7 @@ def k6(script: str, out: str, env: dict | None = None, background: bool = False)
             cmd += ["-e", f"{k}={v}"]
         cmd.append(os.path.join(LT, script))
         cwd = ROOT
-    else:  # k6 inside Docker, on the same private network as the LB
+    else:
         cmd = ["docker", "compose", "--profile", "loadtest", "run", "--rm", "k6", "run", "-q",
                "-e", "BASE_URL=http://lb:8080", "-e", f"OUT=/load-tests/results/{out}"]
         for k, v in env.items():

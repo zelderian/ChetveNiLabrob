@@ -15,10 +15,7 @@ import urllib.request
 
 ROOT = os.path.dirname(os.path.realpath(__file__))
 if os.name == "nt" and len(ROOT) > 1 and ROOT[1] == ":":
-    # VS Code may launch us as "d:/..." - Compose's bake builder then treats the
-    # Dockerfile as outside the build context ("--allow=fs.read" error).
     ROOT = ROOT[0].upper() + ROOT[1:]
-# Classic compose builder: avoids the bake entitlement prompt on Windows paths.
 ENV = {**os.environ, "COMPOSE_BAKE": "false"}
 BASE = "http://localhost:8080"
 DOCKER_DESKTOP = r"C:\Program Files\Docker\Docker\Docker Desktop.exe"

@@ -1,7 +1,3 @@
-// Shared handleSummary: prints a compact table and (optionally) saves the
-// full k6 summary as JSON for load-tests/report.py.
-//   k6 run -e OUT=results/x.json script.js
-
 function fmt(v) {
   return v === undefined ? '-' : v >= 100 ? v.toFixed(0) : v.toFixed(1);
 }

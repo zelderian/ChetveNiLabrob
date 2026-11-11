@@ -1,19 +1,3 @@
-"""Loan business logic: borrowing and returning books.
-
-Lab 2 (stateless): no in-process locks. Concurrency control lives in the
-shared database, so it holds no matter how many instances are running:
-
-* borrow: SELECT ... FOR UPDATE on the member row (serialises the per-member
-  loan-limit check) and on the book row (serialises available_copies).
-  Lock order is always member -> book to avoid deadlocks.
-* return: SELECT ... FOR UPDATE on the loan row, then the book row.
-* idempotency: an optional client-supplied Idempotency-Key is stored in the
-  SAME transaction as the loan (unique per member). A retry - e.g. after the
-  instance that handled the first attempt crashed - returns the already
-  created loan instead of borrowing twice.
-* cache (Lab 4): after COMMIT the book card, catalogue pages and the report
-  are invalidated (available_copies / loan counts changed).
-"""
 import math
 from datetime import datetime, timedelta, timezone
 
@@ -48,7 +32,6 @@ def to_out(loan: Loan) -> LoanOut:
 def borrow_book(
     db: Session, member_id: int, book_id: int, days: int, idempotency_key: str | None = None
 ) -> tuple[Loan, bool]:
-    """Returns (loan, replayed). replayed=True if the key was already processed."""
     member = db.scalar(select(Member).where(Member.id == member_id).with_for_update())
     if member is None:
         raise NotFound(f"Member {member_id} not found")
@@ -124,7 +107,7 @@ def return_book(db: Session, member_id: int, loan_id: int) -> Loan:
 def list_member_loans(db: Session, member_id: int, active_only: bool) -> list[Loan]:
     stmt = (
         select(Loan)
-        .options(joinedload(Loan.book))  # avoid N+1 when rendering book titles
+        .options(joinedload(Loan.book))
         .where(Loan.member_id == member_id)
         .order_by(Loan.borrowed_at.desc())
     )

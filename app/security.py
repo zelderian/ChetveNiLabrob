@@ -1,4 +1,3 @@
-"""Password hashing with PBKDF2 (stdlib only)."""
 import hashlib
 import hmac
 import secrets

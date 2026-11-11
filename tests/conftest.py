@@ -1,8 +1,3 @@
-"""Integration tests run against a real PostgreSQL.
-
-Set TEST_DATABASE_URL (default: local libra_test DB). Schema is created
-with the same Alembic migrations that production uses.
-"""
 import os
 
 os.environ.setdefault(

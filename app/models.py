@@ -71,7 +71,6 @@ class Loan(Base):
     fine_amount: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), default=Decimal("0"), server_default="0"
     )
-    # Client-supplied Idempotency-Key of the request that created the loan.
     idempotency_key: Mapped[str | None] = mapped_column(String(64))
 
     book: Mapped[Book] = relationship()
@@ -84,7 +83,6 @@ class Loan(Base):
         ),
         Index("ix_loans_book_id", "book_id"),
         Index("ix_loans_borrowed_at", "borrowed_at"),
-        # A member cannot hold two active loans of the same book.
         Index(
             "ux_loans_member_book_active",
             "member_id",

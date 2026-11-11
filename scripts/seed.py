@@ -44,7 +44,6 @@ for i in range(N_MEMBERS):
     tokens.append({"Authorization": f"Bearer {t.json()['access_token']}"})
 
 ok = conflicts = 0
-# Zipf-like skew: a few "bestsellers" are requested far more often.
 weights = [1 / (i + 1) for i in range(len(book_ids))]
 for _ in range(N_LOANS):
     book = rnd.choices(book_ids, weights)[0]
